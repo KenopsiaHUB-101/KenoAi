@@ -2,10 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import Sidebar from './Sidebar.jsx';
 import Composer from './Composer.jsx';
 import Markdown from './Markdown.jsx';
-import Header from './Header.jsx';
-import SidebarMemo from './SidebarMemo.jsx';
-import MessageCard from './MessageCard.jsx';
-import ComposerMemo from './ComposerMemo.jsx';
 const Message = lazy(() => import('./Message.jsx'));
 const Landing = lazy(() => import('./Landing.jsx'));
 import { uid, store, trimForApi, compressImage, sseLines, deltaText } from './lib.js';
@@ -513,15 +509,6 @@ export default function App() {
     <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {!isDesktop && sidebarOpen && <div className="backdrop" onClick={() => setSidebarOpen(false)} />}
 
-      {/* Modern Header */}
-      <Header
-        onMenuClick={toggleSidebar}
-        theme={theme}
-        onThemeToggle={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        currentModel="Gemma 4"
-        onModelChange={() => {}}
-      />
-
       <Sidebar
         ref={sidebarRef}
         sessions={sessions}
@@ -534,6 +521,33 @@ export default function App() {
       />
 
       <main className="main">
+        <header className="topbar">
+          {!isDesktop && (
+            <button type="button" className="icon-btn btn-menu" onClick={toggleSidebar} aria-label="Open menu">
+              <IcoMenu />
+            </button>
+          )}
+          {isDesktop && (
+            <button type="button" className="icon-btn btn-menu" onClick={toggleSidebar} aria-label="Toggle sidebar">
+              <IcoSidebar />
+            </button>
+          )}
+          <div className="ttl" title={activeSession?.title}>
+            {activeSession?.title || 'Conversation'} <span className="accent">· {PERSONAS.find((p) => p.id === persona)?.label}</span>
+          </div>
+          <div className="topbar-right">
+            <div className="pill" title={error ? 'Connection error' : 'Connected'}>
+              <span className="dot" style={{ background: error ? 'var(--danger)' : '#34d399' }} />
+              {error ? 'Offline' : 'KenoAi v2'}
+            </div>
+            <div className="persona" role="tablist" aria-label="Persona">
+              {PERSONAS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={persona === p.id}
+                  className={persona === p.id ? 'on' : ''}
                   onClick={() => setPersona(p.id)}
                   title={`Persona: ${p.label}`}
                 >
