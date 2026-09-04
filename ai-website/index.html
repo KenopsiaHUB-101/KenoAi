@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>KenoAi — Advanced AI Assistant Chat</title>
+    <meta name="description" content="KenoAi is a fast, private AI chat assistant with streaming answers, code highlighting, image understanding, voice input, personas and organized chat history — all in one place." />
+    <meta name="keywords" content="AI assistant, AI chat, chatbot, KenoAi, streaming AI, code assistant, image analysis, voice input" />
+    <meta name="author" content="KenoAi" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="canonical" href="https://kenoai.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="KenoAi" />
+    <meta property="og:title" content="KenoAi — Advanced AI Assistant Chat" />
+    <meta property="og:description" content="Streaming AI answers, code highlighting, image understanding, voice input and organized history. Fast, private, beautiful." />
+    <meta property="og:url" content="https://kenoai.app/" />
+    <meta property="og:image" content="https://kenoai.app/icon-192.png" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="KenoAi — Advanced AI Assistant Chat" />
+    <meta name="twitter:description" content="Streaming AI answers, code highlighting, image understanding, voice input and organized history." />
+    <meta name="twitter:image" content="https://kenoai.app/icon-192.png" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "KenoAi",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "Web",
+      "description": "Fast, private AI chat assistant with streaming answers, code highlighting, image understanding and voice input.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
+    </script>
+
+    <!-- Speed: reserve theme before CSS to avoid flash -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('kenoai_theme');
+          var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+      })();
+    </script>
+    <style>html{background:#0b0d12}</style>
+  <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+  <body>
+    <div id="root"></div>
+    <noscript>KenoAi requires JavaScript. Please enable JavaScript to chat with your AI assistant.</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+.
