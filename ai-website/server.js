@@ -61,6 +61,8 @@ const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+// Override for tests / self-hosted proxies; points at the same chat endpoint.
+const OPENROUTER_BASE = (process.env.KENOAI_API_BASE || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
 const MAX_TOKENS = Number(process.env.KENOAI_MAX_TOKENS) || 8192;
 const MAX_BODY_MB = Number(process.env.KENOAI_MAX_BODY_MB) || 12;
 
@@ -311,6 +313,20 @@ function friendlyUpstreamError(status, errText) {
   return `Upstream error ${status}: ${raw}`;
 }
 
+// Free-tier models get rate-limited upstream all the time (429, e.g. "free tier
+// temporarily rate-limited" on the default Gemma). Instead of failing the chat,
+// transparently retry the same request on other free models. openrouter/free
+// lets OpenRouter itself pick a live free model, so it goes first.
+function freeFallbackChain(requestedModel) {
+  const chain = [requestedModel];
+  for (const m of ['openrouter/free', 'google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-super-120b-a12b:free', 'z-ai/glm-5.2:free']) {
+    if (m !== requestedModel && MODELS.some((x) => x.id === m)) chain.push(m);
+  }
+  return chain.slice(0, 4); // cap the attempts
+}
+
+const FALLBACK_STATUSES = new Set([429, 503]);
+
 app.post('/api/ai-stream', rateLimit, async (req, res) => {
   const { messages, persona, model, github } = req.body || {};
 
@@ -400,37 +416,83 @@ app.post('/api/ai-stream', rateLimit, async (req, res) => {
   // as the request body is consumed in Node 20 and would kill the upstream call.
   res.on('close', () => upstream.abort());
 
+  // SSE headers are set now but only FLUSHED once the fallback loop has picked
+  // the model that will actually answer (so x-kenoai-model can still be added).
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
 
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 15000);
+  let keepAlive = null;
+
+  // Try the requested model, then free fallbacks while upstream rate-limits us.
+  const chain = freeFallbackChain(useModel);
+  let response = null;
+  let lastStatus = 0;
+  let lastErrText = '';
+  let usedModel = useModel;
+
+  for (let attempt = 0; attempt < chain.length; attempt++) {
+    usedModel = chain[attempt];
+    try {
+      response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        signal: upstream.signal,
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.PUBLIC_URL || `http://localhost:${PORT}`,
+          'X-Title': 'KenoAi Pro',
+        },
+        body: JSON.stringify({
+          model: usedModel,
+          messages: [{ role: 'system', content: systemContent }, ...messages],
+          stream: true,
+          max_tokens: MAX_TOKENS,
+        }),
+      });
+    } catch (err) {
+      if (upstream.signal.aborted || req.destroyed) { clearInterval(keepAlive); try { res.end(); } catch {} return; }
+      lastStatus = 0;
+      lastErrText = err.message;
+      response = null;
+    }
+    if (response && response.ok && response.body) break; // got a live stream
+    if (response) {
+      lastStatus = response.status;
+      lastErrText = await response.text().catch(() => '');
+      response = null;
+    }
+    // Only retry on rate-limit / temporary-unavailable; other errors (401, 402,
+    // bad request) will fail the same way on every model — stop early.
+    if (!FALLBACK_STATUSES.has(lastStatus)) break;
+    if (attempt < chain.length - 1) {
+      console.log(`[ai-stream] ${usedModel} busy (${lastStatus}) — retrying on ${chain[attempt + 1]}`);
+    }
+  }
+
+  // Tell the client which model actually answered (it may differ from the default).
+  res.setHeader('x-kenoai-model', usedModel);
+  res.flushHeaders();
+  keepAlive = setInterval(() => res.write(': ping\n\n'), 15000);
+
+  if (!response || !response.ok || !response.body) {
+    clearInterval(keepAlive);
+    if (lastStatus === 0) {
+      res.write(`data: ${JSON.stringify({ error: `Could not reach OpenRouter (${lastErrText || 'network error'}). Check your connection and try again.` })}\n\n`);
+    } else if (lastStatus === 429 && chain.length > 1) {
+      res.write(`data: ${JSON.stringify({ error: friendlyUpstreamError(429, lastErrText) + ' — already tried the free fallback models, they are all busy right now. Retry in a minute, or pick another model in the header.' })}\n\n`);
+    } else {
+      res.write(`data: ${JSON.stringify({ error: friendlyUpstreamError(lastStatus, lastErrText) })}\n\n`);
+    }
+    return res.end();
+  }
+
+  if (usedModel !== useModel) {
+    console.log(`[ai-stream] serving from fallback model ${usedModel} (requested ${useModel})`);
+    res.write(`data: ${JSON.stringify({ info: `Free model busy — answered by ${usedModel}.` })}\n\n`);
+  }
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: upstream.signal,
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.PUBLIC_URL || `http://localhost:${PORT}`,
-        'X-Title': 'KenoAi Pro',
-      },
-      body: JSON.stringify({
-        model: useModel,
-        messages: [{ role: 'system', content: systemContent }, ...messages],
-        stream: true,
-        max_tokens: MAX_TOKENS,
-      }),
-    });
-
-    if (!response.ok || !response.body) {
-      const errText = await response.text().catch(() => '');
-      res.write(`data: ${JSON.stringify({ error: friendlyUpstreamError(response.status, errText) })}\n\n`);
-      return res.end();
-    }
-
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
@@ -478,7 +540,7 @@ app.listen(PORT, () => {
   console.log(`  key    : ${OPENROUTER_API_KEY ? 'loaded OK' : 'MISSING — create .env with OPENROUTER_API_KEY and restart'}`);
   if (OPENROUTER_API_KEY) {
     // Cheap live check: a 401 here means chat requests will all fail.
-    fetch('https://openrouter.ai/api/v1/key', {
+    fetch(`${OPENROUTER_BASE}/key`, {
       headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}` },
     })
       .then((r) => {
