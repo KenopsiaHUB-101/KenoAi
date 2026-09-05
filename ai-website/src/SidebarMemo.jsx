@@ -15,9 +15,9 @@ const SidebarItem = React.memo(({
       onClick={() => onClick(id)}
       title={title}
     >
-      <span className="sidebar-item-icon">💬</span>
+      <span className="sidebar-item-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.7 8.7 0 0 1-3.9-.9L3 21l1.9-5.4a8.2 8.2 0 0 1-.9-3.9 8.4 8.4 0 0 1 8.5-8.3 8.5 8.5 0 0 1 8.5 8.3z"/></svg></span>
       <span className="sidebar-item-title">{title}</span>
-      {isDirty && <span className="sidebar-item-badge">●</span>}
+      {isDirty && <span className="sidebar-item-badge"><span className="dirty-dot" aria-hidden="true"></span></span>}
     </button>
     {isActive && (
       <button
@@ -29,7 +29,7 @@ const SidebarItem = React.memo(({
         aria-label="Delete conversation"
         title="Delete conversation"
       >
-        ✕
+        <span aria-hidden="true">&times;</span>
       </button>
     )}
   </div>

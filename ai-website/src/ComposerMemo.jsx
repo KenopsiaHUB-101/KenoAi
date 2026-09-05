@@ -65,13 +65,13 @@ const ComposerMemo = React.memo(({
         {/* Attachment Indicator */}
         {hasImage && (
           <div className="attachment-indicator">
-            📎 Image attached
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> Image attached
             <button
               className="btn-remove-attachment"
               onClick={onImageRemove}
               aria-label="Remove attachment"
             >
-              ✕
+              <span aria-hidden="true">&times;</span>
             </button>
           </div>
         )}
@@ -86,7 +86,7 @@ const ComposerMemo = React.memo(({
               title="Attach image"
               aria-label="Attach image"
             >
-              📎
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
             <input
               ref={fileInputRef}
@@ -111,7 +111,7 @@ const ComposerMemo = React.memo(({
             ) : (
               <>
                 <span>Send</span>
-                <span className="send-icon">→</span>
+                <span className="send-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
               </>
             )}
           </button>

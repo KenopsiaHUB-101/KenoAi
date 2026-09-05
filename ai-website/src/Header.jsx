@@ -30,7 +30,11 @@ const Header = React.memo(({
 
       <div className="header-center">
         <div className="model-badge">
-          <span className="badge-icon">🤖</span>
+          <span className="badge-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="9" r="1.2"/><circle cx="9" cy="15" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="12" cy="12" r="1.2"/>
+            </svg>
+          </span>
           <span className="badge-text">{currentModel || 'Gemma 4'}</span>
         </div>
       </div>
