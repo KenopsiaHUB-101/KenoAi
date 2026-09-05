@@ -7,7 +7,7 @@ const Landing = lazy(() => import('./Landing.jsx'));
 import { uid, store, trimForApi, compressImage, sseLines, deltaText } from './lib.js';
 import {
   IcoMenu, IcoSidebar, IcoSearch, IcoPlus, IcoDots, IcoSun, IcoMoon, IcoArrowDown,
-  IcoTrash, IcoPencil, IcoPin, IcoDownload, IcoBroom, IcoKeyboard, IcoSpark, IcoAlert, IcoFile,
+  IcoTrash, IcoPencil, IcoPin, IcoDownload, IcoBroom, IcoKeyboard, IcoSpark, IcoAlert, IcoFile, IcoGithub,
 } from './icons.jsx';
 
 const PERSONAS = [
@@ -28,6 +28,11 @@ const PERSONA_PROMPTS = {
   programmer: 'You are KenoAi, an expert software engineer. Give correct, production-quality code with best practices, brief explanations, and note edge cases.',
   casual: 'You are KenoAi, a relaxed, friendly companion. Chat naturally with everyday language, keep it fun and supportive.',
 };
+
+// ---------- GitHub connector (client side) ----------
+// The token lives on the server (.env); the browser only asks the backend for
+// status / repo list / repo data and sends {owner, repo, branch} with each chat.
+const GH_KEY = 'kenoai_github_repo';
 
 function makeSession() {
   return { id: uid(), title: 'New Conversation', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
@@ -88,6 +93,14 @@ export default function App() {
   const [dialog, setDialog] = useState(null); // {type, id?, title?}
   const [menu, setMenu] = useState(null);    // {x, y, items}
   const [image, setImage] = useState(null);  // {dataUrl, name}
+  // GitHub connector: server-side token status + the connected repo (persisted)
+  const [gh, setGh] = useState(() => {
+    const saved = store.get(GH_KEY);
+    return saved && saved.owner && saved.repo ? saved : null;
+  });
+  const [ghInfo, setGhInfo] = useState(null); // {connected, user} from /api/github/status
+  const [ghRepos, setGhRepos] = useState(null); // null = not loaded, [] = loaded
+  const [ghBusy, setGhBusy] = useState(false);
 
   // ---------- Refs ----------
   const chatRef = useRef(null);
@@ -129,6 +142,19 @@ export default function App() {
   useEffect(() => { store.set('kenoai_sidebar_collapsed', collapsed); }, [collapsed]);
   useEffect(() => { document.documentElement.dataset.theme = theme; store.set('kenoai_theme', theme); }, [theme]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2600); return () => clearTimeout(t); } }, [toast]);
+
+  // ---------- GitHub connector: keep client state in sync with the server ----------
+  useEffect(() => {
+    let on = true;
+    fetch('/api/github/status')
+      .then((r) => r.json())
+      .then((d) => on && setGhInfo(d))
+      .catch(() => on && setGhInfo({ connected: false, reason: 'offline' }));
+    return () => { on = false; };
+  }, []);
+
+  // Persist the connected repo choice
+  useEffect(() => { if (gh) store.set(GH_KEY, gh); else store.remove(GH_KEY); }, [gh]);
 
   // ---------- Scrolling ----------
   const scrollToBottom = useCallback((smooth = true) => {
@@ -211,6 +237,9 @@ export default function App() {
   // ---------- Context menu ----------
   const openMenu = useCallback((e, items) => {
     e.preventDefault();
+    // Stop the opening click from reaching the window click-away listener
+    // (React 18 attaches that listener during the same event -> menu would close instantly).
+    e.stopPropagation();
     const x = Math.min(e.clientX, window.innerWidth - 200);
     const y = Math.min(e.clientY, window.innerHeight - items.length * 40 - 20);
     setMenu({ x, y, items });
@@ -233,6 +262,7 @@ export default function App() {
       { label: 'Export current chat', icon: <IcoDownload />, act: () => exportSession(activeIdRef.current) },
       { label: 'Clear messages in this chat', icon: <IcoBroom />, act: () => setDialog({ type: 'clear' }) },
       { sep: true },
+      { label: gh ? 'GitHub connector settings' : 'GitHub connector', icon: <IcoGithub />, act: () => openGithubRef.current() },
       { label: 'Keyboard shortcuts', icon: <IcoKeyboard />, act: () => setDialog({ type: 'shortcuts' }) },
       { label: 'Delete all history', icon: <IcoTrash />, danger: true, act: () => setDialog({ type: 'wipe' }) },
       { sep: true },
@@ -242,9 +272,53 @@ export default function App() {
         window.location.reload();
       }},
     ]);
-  }, [openMenu, handleNew, exportSession]);
+  }, [openMenu, handleNew, exportSession, gh]);
 
   const sidebarRef = useRef(null);
+
+  // ---------- GitHub connector actions ----------
+  const openGithub = useCallback(async () => {
+    setDialog({ type: 'github' });
+    if (ghInfo?.connected && ghRepos === null) {
+      try {
+        const r = await fetch('/api/github/repos');
+        const d = await r.json();
+        if (d.ok) setGhRepos(d.repos || []);
+        else throw new Error(d.error || 'Could not load repositories');
+      } catch (err) {
+        setGhRepos([]);
+        setToast(err.message || 'Could not load repositories');
+      }
+    }
+  }, [ghInfo, ghRepos]);
+
+  // Latest openGithub for headerMenu without re-creating it on every repo-list change
+  const openGithubRef = useRef(openGithub);
+  openGithubRef.current = openGithub;
+
+  const connectRepo = useCallback(async (r) => {
+    setGhBusy(true);
+    try {
+      // Ask the backend to validate the repo before saving the selection.
+      const res = await fetch(`/api/github/repo/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || 'Could not connect');
+      setGh({ owner: r.owner, repo: r.name, branch: r.defaultBranch || d.repo?.defaultBranch || 'main' });
+      setToast(`Connected to ${r.owner}/${r.name}`);
+      closeDialog();
+    } catch (err) {
+      setToast(err.message || 'Could not connect to that repository');
+    } finally {
+      setGhBusy(false);
+    }
+  }, []);
+
+  const disconnectGithub = useCallback(() => {
+    setGh(null);
+    setGhRepos(null); // force a fresh list next time the modal opens
+    setToast('GitHub repository disconnected');
+    closeDialog();
+  }, []);
 
   // ---------- Dialog actions ----------
   const closeDialog = () => setDialog(null);
@@ -391,7 +465,11 @@ export default function App() {
       const res = await fetch('/api/ai-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages, persona: personaRef.current }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          persona: personaRef.current,
+          ...(ghRef.current ? { github: { owner: ghRef.current.owner, repo: ghRef.current.repo, branch: ghRef.current.branch } } : {}),
+        }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) throw new Error(`Server responded ${res.status}`);
@@ -456,6 +534,9 @@ export default function App() {
 
   const personaRef = useRef(persona);
   personaRef.current = persona;
+  // Keep the GitHub repo selection available inside handleSend without re-creating it
+  const ghRef = useRef(gh);
+  ghRef.current = gh;
 
   const stopGen = useCallback(() => { abortRef.current?.abort(); }, []);
 
@@ -536,6 +617,12 @@ export default function App() {
             {activeSession?.title || 'Conversation'} <span className="accent">· {PERSONAS.find((p) => p.id === persona)?.label}</span>
           </div>
           <div className="topbar-right">
+            {gh && (
+              <button type="button" className="pill gh-pill" onClick={() => openGithub()} title={`GitHub: ${gh.owner}/${gh.repo}`}>
+                <IcoGithub />
+                <span className="gh-name">{gh.repo}</span>
+              </button>
+            )}
             <div className="pill" title={error ? 'Connection error' : 'Connected'}>
               <span className="dot" style={{ background: error ? 'var(--danger)' : '#34d399' }} />
               {error ? 'Offline' : 'KenoAi v2'}
@@ -577,6 +664,11 @@ export default function App() {
                     {s}
               </button>
                 ))}
+                {gh && (
+                  <button type="button" className="chip gh-chip" onClick={() => { composerRef.current?.set(`Summarize the GitHub repository ${gh.owner}/${gh.repo}: what it does, its structure, and anything notable.`); composerRef.current?.focus(); }}>
+                    <IcoGithub /> Summarize {gh.repo}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -653,6 +745,61 @@ export default function App() {
               <div className="row">
                 <button className="btn-ghost" onClick={closeDialog}>Cancel</button>
                 <button className="btn-danger" onClick={runDialog}>Save</button>
+              </div>
+            </div>
+          ) : dialog.type === 'github' ? (
+            <div className="modal gh-modal" role="dialog" aria-label="GitHub connector">
+              <div className="gh-head">
+                <IcoGithub />
+                <div>
+                  <h3>GitHub connector</h3>
+                  {ghInfo === null ? (
+                    <p className="sub">Checking the server connection…</p>
+                  ) : ghInfo.connected ? (
+                    <p className="sub">Connected as <strong>{ghInfo.user.name}</strong>{ghInfo.user.publicRepos ? ` · ${ghInfo.user.publicRepos} public repos` : ''}</p>
+                  ) : (
+                    <p className="sub">Server has no valid GITHUB_TOKEN. Add it to <code>.env</code> next to server.js and restart.</p>
+                  )}
+                </div>
+              </div>
+
+              {gh && (
+                <div className="gh-active">
+                  <div className="gh-active-row">
+                    <span className="gh-repo-name">{gh.owner}/{gh.repo}</span>
+                    <span className="gh-branch">{gh.branch}</span>
+                  </div>
+                  <p className="gh-note">KenoAi reads this repository (file tree, README, files you mention) and uses it to answer your questions.</p>
+                  <div className="row">
+                    <button className="btn-ghost" onClick={() => closeDialog()}>Keep</button>
+                    <button className="btn-danger" onClick={disconnectGithub}>Disconnect</button>
+                  </div>
+                </div>
+              )}
+
+              {ghInfo?.connected && !gh && (
+                <div className="gh-repos">
+                  <p className="sub">Pick a repository for the AI to read:</p>
+                  {ghRepos === null ? (
+                    <p className="gh-note">Loading repositories…</p>
+                  ) : ghRepos.length === 0 ? (
+                    <p className="gh-note">No repositories found for this account.</p>
+                  ) : (
+                    <div className="gh-list">
+                      {ghRepos.map((r) => (
+                        <button key={r.fullName} type="button" className="gh-repo" disabled={ghBusy}
+                                onClick={() => connectRepo(r)} title={`Connect ${r.fullName}`}>
+                          <span className="gh-repo-name">{r.fullName}</span>
+                          <span className="gh-meta">{[r.language, r.private ? 'private' : 'public', r.pushedAt ? `pushed ${new Date(r.pushedAt).toISOString().slice(0, 10)}` : ''].filter(Boolean).join(' · ')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="row">
+                <button className="btn-ghost" onClick={closeDialog}>Close</button>
               </div>
             </div>
           ) : (

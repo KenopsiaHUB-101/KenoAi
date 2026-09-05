@@ -2393,6 +2393,135 @@ body {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
+/* ---------- GitHub connector ---------- */
+
+.gh-pill {
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+}
+
+.gh-pill:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.gh-pill svg {
+  flex: none;
+}
+
+.gh-modal {
+  max-width: 460px;
+}
+
+.gh-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 0.8rem;
+}
+
+.gh-head > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
+.gh-active {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin: 0.6rem 0 0.4rem;
+  background-color: var(--bg-tertiary);
+}
+
+.gh-active-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gh-repo-name {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.gh-branch {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 2px 9px;
+  flex: none;
+}
+
+.gh-note {
+  margin: 8px 0 4px;
+   font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+.gh-repos {
+  margin-top: 0.4rem;
+}
+
+.gh-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-top: 8px;
+}
+
+.gh-repo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.gh-repo:last-child {
+  border-bottom: none;
+}
+
+.gh-repo:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.gh-repo:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.gh-repo .gh-meta {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+
+.gh-chip svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.gh-modal code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
 .row {
   display: flex;
   justify-content: flex-end;
