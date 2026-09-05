@@ -497,6 +497,7 @@ export default function App() {
         let json;
         try { json = JSON.parse(data); } catch { continue; }
         if (json.error) throw new Error(json.error);
+        if (json.info) { setToast(json.info); continue; } // e.g. free model busy -> fallback used
         const chunk = deltaText(json);
         if (!chunk) continue;
         acc += chunk;
