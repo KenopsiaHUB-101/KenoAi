@@ -294,6 +294,23 @@ app.get('/api/github/file', rateLimit, async (req, res) => {
 });
 
 // ---------- API: streaming chat ----------
+
+// Turn an OpenRouter failure into a message the user can actually act on.
+function friendlyUpstreamError(status, errText) {
+  const raw = String(errText || '').slice(0, 300);
+  if (status === 401) {
+    return 'The OpenRouter API key was rejected (401 ' + (raw || 'unauthorized') + '). ' +
+      'Open https://openrouter.ai/settings/keys, create a fresh key, put it in .env as OPENROUTER_API_KEY, then restart server.js.';
+  }
+  if (status === 402) {
+    return 'OpenRouter says this key has no credit for that model (402). Try a free model (e.g. google/gemma-4-31b-it:free) or top up at openrouter.ai/credits.';
+  }
+  if (status === 429) {
+    return 'OpenRouter rate limit hit (429). Wait a moment and try again. ' + raw;
+  }
+  return `Upstream error ${status}: ${raw}`;
+}
+
 app.post('/api/ai-stream', rateLimit, async (req, res) => {
   const { messages, persona, model, github } = req.body || {};
 
@@ -410,7 +427,7 @@ app.post('/api/ai-stream', rateLimit, async (req, res) => {
 
     if (!response.ok || !response.body) {
       const errText = await response.text().catch(() => '');
-      res.write(`data: ${JSON.stringify({ error: `Upstream error ${response.status}: ${errText.slice(0, 300)}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: friendlyUpstreamError(response.status, errText) })}\n\n`);
       return res.end();
     }
 
@@ -459,6 +476,22 @@ app.listen(PORT, () => {
   console.log(`KenoAi backend + SPA on http://localhost:${PORT}`);
   console.log(`  model  : ${DEFAULT_MODEL} (default)`);
   console.log(`  key    : ${OPENROUTER_API_KEY ? 'loaded OK' : 'MISSING — create .env with OPENROUTER_API_KEY and restart'}`);
+  if (OPENROUTER_API_KEY) {
+    // Cheap live check: a 401 here means chat requests will all fail.
+    fetch('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}` },
+    })
+      .then((r) => {
+        if (r.ok) {
+          r.json()
+            .then((d) => console.log(`  key    : valid — ${d?.data?.label || 'no label'} · usage $${(Number(d?.data?.usage) || 0).toFixed(3)}`))
+            .catch(() => {});
+        } else {
+          console.warn('  warning: OpenRouter REJECTED the key (' + r.status + ') — chat will not work until you replace OPENROUTER_API_KEY in .env with a fresh key from https://openrouter.ai/settings/keys');
+        }
+      })
+      .catch(() => { /* offline / blocked sandbox — skip silently */ });
+  }
   console.log(`  models : ${freeCount} free + ${MODELS.length - freeCount} paid — list at GET /api/models`);
   console.log(`  github : ${GITHUB_TOKEN ? 'connector ready — list at GET /api/github/status' : 'connector off (no GITHUB_TOKEN in .env)'}`);
   if (process.env.KENOAI_MODEL && !MODELS.some((m) => m.id === process.env.KENOAI_MODEL)) {

@@ -51,21 +51,12 @@ export default function App() {
     }
     return false;
   });
-  const [authLoading, setAuthLoading] = useState(false);
-
-  // If not authenticated, show Landing page
-  if (!isAuthenticated) {
-    return (
-      <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>}>
-        <Landing 
-          onLoginSuccess={() => {
-            setIsAuthenticated(true);
-            // Trigger re-render to switch to chat
-          }}
-        />
-      </Suspense>
-    );
-  }
+  // NOTE: every hook below must run on EVERY render, authenticated or not.
+  // An early return before them changes the hook count between renders when
+  // login flips `isAuthenticated`, which crashes React with
+  // "Rendered more hooks than during the previous render" (minified error #310)
+  // and blanks the page until a manual reload. The auth gate therefore lives
+  // right before the main return, after every hook has already run.
 
   // ---------- State (kept minimal & flat) ----------
   const [sessions, setSessions] = useState(() => {
@@ -145,13 +136,14 @@ export default function App() {
 
   // ---------- GitHub connector: keep client state in sync with the server ----------
   useEffect(() => {
+    if (!isAuthenticated) return; // nothing to sync while on the landing page
     let on = true;
     fetch('/api/github/status')
       .then((r) => r.json())
       .then((d) => on && setGhInfo(d))
       .catch(() => on && setGhInfo({ connected: false, reason: 'offline' }));
     return () => { on = false; };
-  }, []);
+  }, [isAuthenticated]);
 
   // Persist the connected repo choice
   useEffect(() => { if (gh) store.set(GH_KEY, gh); else store.remove(GH_KEY); }, [gh]);
@@ -434,27 +426,30 @@ export default function App() {
     };
     const aiMsg = { id: uid(), role: 'assistant', content: '', ts: Date.now() };
 
-    let history;
-    setSessions((prev) => {
-      history = prev.map((s) => {
-        if (s.id !== sid) return s;
-        const msgs = [...s.messages, userMsg];
-        return {
-          ...s,
-          title: s.messages.length === 0 ? (text ? (text.length > 32 ? text.slice(0, 32) + '…' : text) : 'Image analysis') : s.title,
-          messages: msgs,
-          updatedAt: Date.now(),
-        };
-      });
-      return history;
+    // Compute the new history from the always-current ref BEFORE setState.
+    // Assigning a variable inside the setSessions updater and reading it right
+    // after is unreliable: React may defer the updater to the next render,
+    // leaving `history` undefined and crashing message sending with
+    // "Cannot read properties of undefined (reading 'find')" — the fetch to
+    // /api/ai-stream never fired, so the AI never answered.
+    const history = sessionsRef.current.map((s) => {
+      if (s.id !== sid) return s;
+      const msgs = [...s.messages, userMsg];
+      return {
+        ...s,
+        title: s.messages.length === 0 ? (text ? (text.length > 32 ? text.slice(0, 32) + '…' : text) : 'Image analysis') : s.title,
+        messages: msgs,
+        updatedAt: Date.now(),
+      };
     });
+    setSessions(history);
     setImage(null);
     setLoading(true);
     setError(null);
     stickBottomRef.current = true;
 
     // Build API payload synchronously from the captured history snapshot
-    const session = history.find((s) => s.id === sid);
+    const session = history.find((s) => s.id === sid) || history[0];
     const apiMessages = [{ role: 'system', content: PERSONA_PROMPTS[personaRef.current] }]
       .concat(trimForApi(session.messages).map((m) => ({ role: m.role, content: m.content })));
 
@@ -585,6 +580,18 @@ export default function App() {
   useEffect(() => {
     setSidebarOpen(false);
   }, [isDesktop]);
+
+  // ---------- Auth gate ----------
+  // All hooks have run by this point, so flipping `isAuthenticated` after a
+  // successful Google login only swaps the rendered tree — React keeps the
+  // same hook count and never crashes.
+  if (!isAuthenticated) {
+    return (
+      <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>}>
+        <Landing onLoginSuccess={() => setIsAuthenticated(true)} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
