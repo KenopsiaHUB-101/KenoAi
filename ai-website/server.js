@@ -116,9 +116,186 @@ app.get('/api/models', (req, res) => {
   res.json({ ok: true, default: DEFAULT_MODEL, models: MODELS });
 });
 
+// ---------- GitHub connector ----------
+// Server-side GitHub access (token stays on the server, never sent to the browser).
+// Uses the global fetch (Node 18+) -> zero new dependencies.
+// KENOAI_GITHUB_TOKEN overrides GITHUB_TOKEN (for hosts that inject their own GITHUB_TOKEN).
+const GITHUB_TOKEN = process.env.KENOAI_GITHUB_TOKEN || process.env.GITHUB_TOKEN || '';
+const GH_API = 'https://api.github.com';
+
+// Tiny in-memory cache (5 min) so repeated tree/file reads don't burn the token rate limit.
+const ghCache = new Map();
+function ghCached(key, ttlMs, loader) {
+  const now = Date.now();
+  const hit = ghCache.get(key);
+  if (hit && now - hit.ts < ttlMs) return Promise.resolve(hit.value);
+  return loader().then((value) => {
+    ghCache.set(key, { ts: now, value });
+    if (ghCache.size > 300) {
+      for (const [k, v] of ghCache) if (now - v.ts > 600_000) ghCache.delete(k);
+    }
+    return value;
+  });
+}
+
+function ghHeaders() {
+  return {
+    Authorization: `Bearer ${GITHUB_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'KenoAi-connector',
+  };
+}
+
+async function ghFetch(path) {
+  if (!GITHUB_TOKEN) {
+    const err = new Error('Server is missing GITHUB_TOKEN. Add GITHUB_TOKEN=ghp_... to .env next to server.js and restart.');
+    err.status = 503;
+    throw err;
+  }
+  const r = await fetch(GH_API + path, { headers: ghHeaders() });
+  const remaining = r.headers.get('x-ratelimit-remaining');
+  if (remaining !== null && Number(remaining) < 20) console.warn(`[github] rate limit low: ${remaining} left`);
+  if (!r.ok) {
+    let detail = `GitHub API ${r.status}`;
+    try {
+      const body = await r.json();
+      if (body.message) detail = `${detail} - ${body.message}`;
+    } catch { /* not JSON */ }
+    const err = new Error(detail);
+    err.status = r.status === 401 ? 502 : r.status === 404 ? 404 : 502;
+    if (r.status === 401) err.message = 'GitHub rejected the token (401). Check GITHUB_TOKEN in .env.';
+    if (r.status === 404) err.message = 'Repository, branch or file not found on GitHub.';
+    throw err;
+  }
+  return r.json();
+}
+
+function ghHandle(err, res) {
+  console.error('[github]', err.message);
+  if (!res.headersSent) res.status(err.status || 500).json({ error: err.message });
+}
+
+// GET /api/github/status -> token valid? + connected account info
+app.get('/api/github/status', rateLimit, async (req, res) => {
+  try {
+    if (!GITHUB_TOKEN) return res.json({ ok: true, connected: false, reason: 'no-token' });
+    const user = await ghCached('user', 300_000, () => ghFetch('/user'));
+    res.json({ ok: true, connected: true, user: { login: user.login, name: user.name || user.login, avatar: user.avatar_url, publicRepos: user.public_repos } });
+  } catch (err) {
+    res.json({ ok: true, connected: false, reason: 'bad-token', detail: err.message });
+  }
+});
+
+// GET /api/github/repos -> the account's repositories (most recently pushed first)
+app.get('/api/github/repos', rateLimit, async (req, res) => {
+  try {
+    const repos = await ghCached('repos', 300_000, () =>
+      ghFetch('/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member')
+    );
+    res.json({
+      ok: true,
+      repos: repos.map((r) => ({
+        owner: r.owner.login,
+        name: r.name,
+        fullName: r.full_name,
+        private: r.private,
+        description: r.description || '',
+        language: r.language || '',
+        pushedAt: r.pushed_at,
+        defaultBranch: r.default_branch,
+        stars: r.stargazers_count,
+      })),
+    });
+  } catch (err) {
+    ghHandle(err, res);
+  }
+});
+
+// GET /api/github/repo/:owner/:repo -> repo meta + README (rendered as markdown text)
+app.get('/api/github/repo/:owner/:repo', rateLimit, async (req, res) => {
+  const { owner, repo } = req.params;
+  try {
+    const data = await ghCached(`repo:${owner}/${repo}`, 120_000, async () => {
+      const meta = await ghFetch(`/repos/${owner}/${repo}`);
+      let readme = '';
+      try {
+        const r = await ghFetch(`/repos/${owner}/${repo}/readme`);
+        readme = Buffer.from(r.content || '', r.encoding || 'base64').toString('utf8');
+      } catch { /* repo without README */ }
+      return { meta, readme };
+    });
+    const m = data.meta;
+    res.json({
+      ok: true,
+      repo: {
+        fullName: m.full_name,
+        description: m.description || '',
+        private: m.private,
+        defaultBranch: m.default_branch,
+        language: m.language || '',
+        stars: m.stargazers_count,
+        forks: m.forks_count,
+        openIssues: m.open_issues_count,
+        pushedAt: m.pushed_at,
+        sizeKb: m.size,
+      },
+      readme: data.readme.slice(0, 8000),
+    });
+  } catch (err) {
+    ghHandle(err, res);
+  }
+});
+
+// GET /api/github/tree/:owner/:repo/:branch -> recursive file tree (paths + types only)
+app.get('/api/github/tree/:owner/:repo/:branch', rateLimit, async (req, res) => {
+  const { owner, repo, branch } = req.params;
+  try {
+    const sha = await ghCached(`sha:${owner}/${repo}:${branch}`, 120_000, async () => {
+      const ref = await ghFetch(`/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`);
+      return ref.commit.sha;
+    });
+    const tree = await ghCached(`tree:${owner}/${repo}:${sha}`, 300_000, () =>
+      ghFetch(`/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`)
+    );
+    const files = (tree.tree || [])
+      .filter((n) => n.type === 'blob')
+      .map((n) => n.path)
+      .filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p))
+      .slice(0, 1500);
+    res.json({ ok: true, branch, truncated: Boolean(tree.truncated), count: files.length, files });
+  } catch (err) {
+    ghHandle(err, res);
+  }
+});
+
+// GET /api/github/file?repo=owner/name&path=src/App.jsx -> single file content (raw)
+app.get('/api/github/file', rateLimit, async (req, res) => {
+  const repo = String(req.query.repo || '').trim();
+  const p = String(req.query.path || '').trim();
+  if (!/^[\w.\-]+\/[\w.\-]+$/.test(repo)) return res.status(400).json({ error: 'Query param "repo" must be owner/name.' });
+  if (!p || p.includes('..')) return res.status(400).json({ error: 'Query param "path" is required.' });
+  try {
+    const data = await ghCached(`file:${repo}:${p}`, 120_000, async () => {
+      const f = await ghFetch(`/repos/${repo}/contents/${encodeURIComponent(p).replace(/%2F/g, '/')}`);
+      let content = '';
+      let encoding = 'utf8';
+      if (f.type === 'file' && typeof f.content === 'string') {
+        encoding = f.encoding === 'base64' ? 'base64' : 'utf8';
+        content = Buffer.from(f.content, encoding).toString('utf8');
+      }
+      return { path: f.path, size: f.size, type: f.type, content, truncated: (f.size || 0) > 120_000 };
+    });
+    if (data.type !== 'file') return res.status(400).json({ error: `"${p}" is a directory, not a file.` });
+    res.json({ ok: true, ...data, content: data.content.slice(0, 120_000) });
+  } catch (err) {
+    ghHandle(err, res);
+  }
+});
+
 // ---------- API: streaming chat ----------
 app.post('/api/ai-stream', rateLimit, async (req, res) => {
-  const { messages, persona, model } = req.body || {};
+  const { messages, persona, model, github } = req.body || {};
 
   if (!OPENROUTER_API_KEY) {
     return res.status(500).json({ error: 'Server is missing OPENROUTER_API_KEY. Create a .env file next to server.js (see .env.example) and restart.' });
@@ -143,6 +320,62 @@ app.post('/api/ai-stream', rateLimit, async (req, res) => {
   } else if (persona === 'casual') {
     systemContent =
       'You are KenoAi, a relaxed, friendly companion. Chat naturally with everyday language, keep it fun and supportive.';
+  }
+
+  // ---------- GitHub repo context ----------
+  // When the client sends { github: { owner, repo, branch } }, the server pulls a
+  // repo snapshot (file tree + README + any file paths the user mentions) and
+  // injects it into the system prompt, so the AI answers with real repo data.
+  if (github && typeof github === 'object' && GITHUB_TOKEN) {
+    const owner = String(github.owner || '').replace(/[^\w.\-]/g, '');
+    const repo = String(github.repo || '').replace(/[^\w.\-]/g, '');
+    const branch = String(github.branch || '').replace(/[^\w.\-]/g, '');
+    if (owner && repo) {
+      try {
+        const [meta, tree] = await Promise.all([
+          ghCached(`repo:${owner}/${repo}`, 120_000, () => ghFetch(`/repos/${owner}/${repo}`)),
+          ghFetch(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch || 'HEAD')}?recursive=1`).catch(() => null),
+        ]);
+        const files = (tree && tree.tree ? tree.tree : [])
+          .filter((n) => n.type === 'blob')
+          .map((n) => n.path)
+          .filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p))
+          .slice(0, 400);
+        let context = `\n\n## Connected GitHub repository: ${owner}/${repo}${branch ? ` (branch: ${branch})` : ''}\n`;
+        context += `Description: ${meta.description || 'none'} | Language: ${meta.language || 'unknown'} | Stars: ${meta.stargazers_count || 0} | Default branch: ${meta.default_branch}\n\n`;
+        context += `### File tree (${files.length} files)\n`;
+        context += files.map((p) => `- ${p}`).join('\n');
+        context += '\n\n### README (first part)\n';
+        context += await ghCached(`readme:${owner}/${repo}`, 120_000, () =>
+          ghFetch(`/repos/${owner}/${repo}/readme`)
+            .then((r) => Buffer.from(r.content || '', r.encoding || 'base64').toString('utf8').slice(0, 4000))
+            .catch(() => '(no README)')
+        );
+        // If the latest user message mentions file paths that exist in the repo,
+        // attach their contents so the AI can read them without extra round-trips.
+        const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+        const text = typeof (lastUser && lastUser.content) === 'string' ? lastUser.content : '';
+        const mentioned = files.filter((p) => {
+          const base = p.split('/').pop();
+          return text && p !== 'package-lock.json' && (text.includes(p) || text.includes(base));
+        }).slice(0, 3);
+        for (const p of mentioned) {
+          try {
+            const f = await ghCached(`file:${owner}/${repo}:${p}`, 120_000, () =>
+              ghFetch(`/repos/${owner}/${repo}/contents/${encodeURIComponent(p).replace(/%2F/g, '/')}`)
+            );
+            if (f.type === 'file' && typeof f.content === 'string') {
+              const body = Buffer.from(f.content, f.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8');
+              context += `\n\n### File: ${p}\n\`\`\`\n${body.slice(0, 6000)}\n\`\`\`\``;
+            }
+          } catch { /* skip unreadable file */ }
+        }
+        context += `\n\nUse this repository data when answering. If the user asks about a file not shown, tell them the path from the tree above and answer from your best understanding.`;
+        systemContent += context;
+      } catch (err) {
+        console.warn('[ai-stream] github context skipped:', err.message);
+      }
+    }
   }
 
   const upstream = new AbortController();
@@ -227,6 +460,7 @@ app.listen(PORT, () => {
   console.log(`  model  : ${DEFAULT_MODEL} (default)`);
   console.log(`  key    : ${OPENROUTER_API_KEY ? 'loaded OK' : 'MISSING — create .env with OPENROUTER_API_KEY and restart'}`);
   console.log(`  models : ${freeCount} free + ${MODELS.length - freeCount} paid — list at GET /api/models`);
+  console.log(`  github : ${GITHUB_TOKEN ? 'connector ready — list at GET /api/github/status' : 'connector off (no GITHUB_TOKEN in .env)'}`);
   if (process.env.KENOAI_MODEL && !MODELS.some((m) => m.id === process.env.KENOAI_MODEL)) {
     console.warn(`  warning: KENOAI_MODEL="${process.env.KENOAI_MODEL}" is not in the catalogue — using ${DEFAULT_MODEL}.`);
   }
