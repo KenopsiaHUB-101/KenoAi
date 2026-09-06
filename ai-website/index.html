@@ -9,7 +9,7 @@
     <meta name="author" content="KenoAi" />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#f5f2fc" media="(prefers-color-scheme: light)" />
     <meta name="color-scheme" content="dark light" />
     <link rel="canonical" href="https://kenoai.app/" />
 
@@ -51,9 +51,10 @@
       (function () {
         try {
           var t = localStorage.getItem('kenoai_theme');
-          var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-        } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+          // accept both raw ('light') and JSON-wrapped ("light") values from store.set
+          var light = t ? (t === 'light' || t === '\"light\"' || JSON.parse(t) === 'light') : true;
+          document.documentElement.dataset.theme = light ? 'light' : 'dark';
+        } catch (e) { document.documentElement.dataset.theme = 'light'; }
       })();
     </script>
     <style>html{background:#f5f2fc}</style>
