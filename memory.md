@@ -114,6 +114,7 @@ npm run server   # PORT 5000
 | #4 | Fix white screen + AI tidak menjawab | (a) hooks-order React di App.jsx → layar putih setelah login Google; (b) bug eager-state `let history` di handleSend → fetch tidak pernah jalan; (c) key OpenRouter invalid 401. Tambah friendlyUpstreamError + cek key saat startup |
 | #5 | Auto-fallback model gratis saat 429 | Rate limit free tier (43 req/jam) → chain fallback: openrouter/free → gemma-4-26b → nemotron-3-super → glm-5.2; header `x-kenoai-model` + event info → toast; KENOAI_API_BASE untuk test |
 | #6 | Redesign Landing Page | Landing baru bergaya referensi `Refrensi/` (dashboard lavender/purple "workspace"): navbar sticky, hero + mockup dashboard 3-kolom (sidebar/menu/CTA ungu, tasks IN PROGRESS/TO DO dengan chips prioritas, panel Projects+Calendar+Reminders), quick starts, 6 features, 4 steps, 3 kartu For Business (chat/progress/docs), stats, CTA, footer. Logo semua = icon-192.png milik pemilik. File baru: `src/Landing.css`. index.html: background awal terang. Responsif PC+mobile, 0 error halaman |
+| #7 | Selaraskan Tema Chat App | Chat app (sidebar, welcome, composer, menu, persona, login card, code block, toast) kini ikut tema light lavender yang sama dengan landing: blok variabel `[data-theme="light"]` di App.css dipindah ke palet lavender/ungu (`#fdfcff` sidebar, `#ffffff` main, aksen `#7c5cfc`, teks `#241d3f`). Default tema = light (index.html bootstrap + App.jsx); dark tetap tersedia via toggle. Fix penting: bootstrap sekarang membaca nilai `kenoai_theme` dua format (raw & JSON-wrapped dari `store.set`) — dulu nilai JSON selalu salah terbaca jadi dark. Code block light: surface ungu-tua `#241f3d` + bar `#2d2850` agar kode tetap terbaca. Responsif PC+mobile, 0 error |
 
 ---
 
@@ -127,6 +128,7 @@ npm run server   # PORT 5000
 - **Menu dropdown menutup sendiri**: event klik luar memicu close → fix `e.stopPropagation()` di tombol pembuka menu.
 - **Landing CSS scope**: CSS landing dibuat prefix `.k-*`/`.mk-*` + file terpisah agar tidak bentrok dengan tema dark app chat.
 - **Smooth scroll**: `html{scroll-behavior}` hanya di-aktifkan saat landing mounted (class `k-landing-on`), supaya autoscroll chat app tidak lambat.
+- **Tema tersimpan dua format**: `store.set('kenoai_theme', v)` menyimpan JSON (`"light"` dengan kutip), tapi bootstrap index.html dulu membaca string mentah → selalu salah baca → tema berbalik dark setelah reload. Fix: bootstrap mem-parse kedua format.
 
 ---
 

@@ -2859,24 +2859,61 @@ body {
 
 [data-theme="light"] .login-card {
   background-color: #ffffff;
+  border-color: #e8e2f7;
+  box-shadow: 0 24px 60px -12px rgba(93, 74, 210, 0.22);
+}
+
+/* Code blocks: keep a deep-purple dark surface for readability, lavender chrome */
+[data-theme="light"] .code-wrap {
+  background-color: #241f3d;
+  border-color: #e8e2f7;
 }
 
 [data-theme="light"] .code-bar {
-  background-color: var(--bg-tertiary);
+  background-color: #2d2850;
+  border-bottom-color: #3a3363;
+  color: #c9c2ec;
 }
 
-/* Light Theme Support */
+[data-theme="light"] .code-bar button {
+  color: #c9c2ec;
+  border-color: #3a3363;
+}
+
+/* Soft lavender veil/backdrop so modals feel lighter */
+[data-theme="light"] .veil {
+  background-color: rgba(36, 29, 63, 0.45);
+}
+
+[data-theme="light"] .backdrop {
+  background-color: rgba(36, 29, 63, 0.35);
+}
+
+/* Welcome avatar glow tuned for light */
+[data-theme="light"] .welcome .avatar {
+  box-shadow: 0 12px 32px rgba(124, 92, 252, 0.30);
+}
+
+/* Light Theme Support — aligned with the lavender/purple landing palette */
 [data-theme="light"] {
   --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #f1f5f9;
-  --bg-hover: #e2e8f0;
-  --bg-active: #cbd5e1;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-tertiary: #64748b;
-  --border-color: #e2e8f0;
-  --border-subtle: #f1f5f9;
+  --bg-secondary: #fdfcff;
+  --bg-tertiary: #f6f3fc;
+  --bg-hover: #efeaff;
+  --bg-active: #e9e2fa;
+  --text-primary: #241d3f;
+  --text-secondary: #4c4666;
+  --text-tertiary: #847ca3;
+  --border-color: #e8e2f7;
+  --border-subtle: #f0ecfb;
+  --accent-primary: #7c5cfc;
+  --accent-secondary: #8b5cf6;
+  --gradient-primary: linear-gradient(135deg, #7c5cfc 0%, #8b5cf6 100%);
+  --gradient-glow: linear-gradient(135deg, #7c5cfc 0%, #8b5cf6 50%, #a78bfa 100%);
+  --shadow-sm: 0 1px 2px 0 rgba(93, 74, 210, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(93, 74, 210, 0.10);
+  --shadow-lg: 0 10px 15px -3px rgba(93, 74, 210, 0.12);
+  --shadow-xl: 0 20px 25px -5px rgba(93, 74, 210, 0.14);
 }
 
 /* Scrollbar Styling */

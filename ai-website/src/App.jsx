@@ -77,7 +77,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
   const [collapsed, setCollapsed] = useState(() => store.get('kenoai_sidebar_collapsed') === true);
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   const [persona, setPersona] = useState(() => store.get('kenoai_persona', 'professional'));
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
