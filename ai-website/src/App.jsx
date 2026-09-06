@@ -8,7 +8,10 @@ import { uid, store, trimForApi, compressImage, sseLines, deltaText } from './li
 import {
   IcoMenu, IcoSidebar, IcoSearch, IcoPlus, IcoDots, IcoSun, IcoMoon, IcoArrowDown,
   IcoTrash, IcoPencil, IcoPin, IcoDownload, IcoBroom, IcoKeyboard, IcoSpark, IcoAlert, IcoFile, IcoGithub,
+  IcoHome,
 } from './icons.jsx';
+import './Workspace.css';
+import { WorkspaceHome, WorkspaceTasks, WorkspaceInbox, WorkspaceCalendar, WorkspaceReports } from './Workspace.jsx';
 
 const PERSONAS = [
   { id: 'professional', label: 'Professional' },
@@ -34,8 +37,64 @@ const PERSONA_PROMPTS = {
 // status / repo list / repo data and sends {owner, repo, branch} with each chat.
 const GH_KEY = 'kenoai_github_repo';
 
-function makeSession() {
-  return { id: uid(), title: 'New Conversation', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+function makeSession(projectId) {
+  return { id: uid(), title: 'New Conversation', messages: [], createdAt: Date.now(), updatedAt: Date.now(), projectId: projectId || null };
+}
+
+// ============================================================
+// Workspace (NinjaAI-style): projects, tasks, inbox, calendar,
+// reports + per-chat workspace files. Everything persists via
+// the same `store` wrapper as the chat history.
+// ============================================================
+const WS_KEY = {
+  view: 'kenoai_view',
+  projects: 'kenoai_projects_v1',
+  tasks: 'kenoai_tasks_v1',
+  inbox: 'kenoai_inbox_v1',
+  files: 'kenoai_ws_files_v1',
+  project: 'kenoai_active_project',
+};
+
+const VIEW_TITLES = { home: 'Home', chat: 'Chat', tasks: 'My tasks', inbox: 'Inbox', calendar: 'Calendar', reports: 'Reports & Analytics' };
+
+const TEXT_FILE_EXT = /\.(txt|md|json|csv|js|jsx|ts|tsx|py|html|css|xml|yml|yaml|log|sql|sh)$/i;
+const WS_FILE_CAP = 512 * 1024; // max file size accepted into a chat workspace
+const WS_CTX_CAP = 12000;       // max chars of workspace-file context sent to the AI
+
+const daysFromNow = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+const SEED_PROJECTS = [
+  { id: 'p-launch', name: 'Product Launch', color: '#7c5cfc', progress: 73 },
+  { id: 'p-client', name: 'Client Onboarding', color: '#12b5a2', progress: 45 },
+  { id: 'p-brain', name: 'Team Brainstorm', color: '#ef8f1d', progress: 11 },
+];
+
+const SEED_TASKS = [
+  { id: 't1', title: 'Draft Q4 launch messaging', status: 'progress', prio: 'high', due: daysFromNow(1) },
+  { id: 't2', title: 'Review pricing page copy', status: 'progress', prio: 'normal', due: daysFromNow(3) },
+  { id: 't3', title: 'Fix onboarding email flow', status: 'progress', prio: 'high', due: daysFromNow(-1) },
+  { id: 't4', title: 'Collect client feedback', status: 'todo', prio: 'normal', due: daysFromNow(5) },
+  { id: 't5', title: 'Plan team offsite agenda', status: 'upcoming', prio: 'low', due: daysFromNow(12) },
+  { id: 't6', title: 'Prepare demo environment', status: 'upcoming', prio: 'high', due: daysFromNow(8) },
+];
+
+const SEED_INBOX = [
+  { id: 'n1', title: 'KenoAi drafted your launch email', preview: 'Your draft is ready in the Product Launch chat.', ts: Date.now() - 3600e3, unread: true },
+  { id: 'n2', title: 'Task due tomorrow', preview: '"Draft Q4 launch messaging" is due tomorrow.', ts: Date.now() - 7200e3, unread: true },
+];
+
+/** Best-effort decode of a Google credential JWT -> { name, email }. */
+function decodeJwt(token) {
+  try {
+    const payload = JSON.parse(atob(String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return { name: payload.name || payload.email || 'there', email: payload.email || '' };
+  } catch {
+    return { name: 'there', email: '' };
+  }
 }
 
 export default function App() {
@@ -50,6 +109,10 @@ export default function App() {
       return true;
     }
     return false;
+  });
+  const [user, setUser] = useState(() => {
+    const token = store.get('kenoai_auth_token');
+    return token ? decodeJwt(token) : { name: 'there', email: '' };
   });
   // NOTE: every hook below must run on EVERY render, authenticated or not.
   // An early return before them changes the hook count between renders when
@@ -93,6 +156,29 @@ export default function App() {
   const [ghRepos, setGhRepos] = useState(null); // null = not loaded, [] = loaded
   const [ghBusy, setGhBusy] = useState(false);
 
+  // ---------- Workspace state ----------
+  const [view, setView] = useState(() => {
+    const v = store.get(WS_KEY.view);
+    return v === 'chat' || v === 'tasks' || v === 'inbox' || v === 'calendar' || v === 'reports' ? v : 'home';
+  });
+  const [projects, setProjects] = useState(() => {
+    const saved = store.get(WS_KEY.projects);
+    return Array.isArray(saved) && saved.length ? saved : SEED_PROJECTS.slice();
+  });
+  const [tasks, setTasks] = useState(() => {
+    const saved = store.get(WS_KEY.tasks);
+    return Array.isArray(saved) && saved.length ? saved : SEED_TASKS.slice();
+  });
+  const [inbox, setInbox] = useState(() => {
+    const saved = store.get(WS_KEY.inbox);
+    return Array.isArray(saved) && saved.length ? saved : SEED_INBOX.slice();
+  });
+  const [files, setFiles] = useState(() => {
+    const saved = store.get(WS_KEY.files);
+    return Array.isArray(saved) ? saved : [];
+  });
+  const [activeProjectId, setActiveProjectId] = useState(() => store.get(WS_KEY.project) || null);
+
   // ---------- Refs ----------
   const chatRef = useRef(null);
   const composerRef = useRef(null);
@@ -104,6 +190,12 @@ export default function App() {
   const activeIdRef = useRef(activeId);
   sessionsRef.current = sessions;
   activeIdRef.current = activeId;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const activeProjectIdRef = useRef(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
 
   // ---------- Derived ----------
   const activeSession = useMemo(
@@ -112,6 +204,8 @@ export default function App() {
   );
   const messages = activeSession?.messages || [];
   const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const inboxCount = inbox.filter((n) => n.unread).length;
+  const taskCount = tasks.filter((t) => t.status !== 'done').length;
 
   // ---------- Persistence (debounced, quota-aware) ----------
   useEffect(() => {
@@ -133,6 +227,14 @@ export default function App() {
   useEffect(() => { store.set('kenoai_sidebar_collapsed', collapsed); }, [collapsed]);
   useEffect(() => { document.documentElement.dataset.theme = theme; store.set('kenoai_theme', theme); }, [theme]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2600); return () => clearTimeout(t); } }, [toast]);
+  useEffect(() => { store.set(WS_KEY.view, view); }, [view]);
+  useEffect(() => { store.set(WS_KEY.projects, projects); }, [projects]);
+  useEffect(() => { store.set(WS_KEY.tasks, tasks); }, [tasks]);
+  useEffect(() => { store.set(WS_KEY.inbox, inbox); }, [inbox]);
+  useEffect(() => { store.set(WS_KEY.files, files); }, [files]);
+  useEffect(() => { if (activeProjectId) store.set(WS_KEY.project, activeProjectId); }, [activeProjectId]);
+  // The "jump to latest" pill only belongs to the chat log.
+  useEffect(() => { if (view !== 'chat') setJump(false); }, [view]); // eslint-disable-line
 
   // ---------- GitHub connector: keep client state in sync with the server ----------
   useEffect(() => {
@@ -181,13 +283,102 @@ export default function App() {
   }, [isDesktop]);
 
   const handleNew = useCallback(() => {
-    const s = makeSession();
+    const s = makeSession(activeProjectIdRef.current);
     setSessions((prev) => [s, ...prev]);
     setActiveId(s.id);
+    setView('chat');
     stickBottomRef.current = true;
     if (!isDesktop) setSidebarOpen(false);
     setTimeout(() => composerRef.current?.focus(), 60);
   }, [isDesktop]);
+
+  // ---------- Workspace actions ----------
+  const navigate = useCallback((v) => {
+    setView(v);
+    if (!isDesktop) setSidebarOpen(false);
+    if (v === 'chat') setTimeout(() => composerRef.current?.focus(), 60);
+  }, [isDesktop]);
+
+  // Open a project: activate it, then jump to its newest chat (or seed one).
+  const openProject = useCallback((pid) => {
+    const p = projects.find((x) => x.id === pid);
+    if (!p) return;
+    setActiveProjectId(pid);
+    if (!isDesktop) setSidebarOpen(false);
+    const owned = sessionsRef.current.filter((s) => s.projectId === pid);
+    if (owned.length) {
+      setActiveId(owned[owned.length - 1].id);
+      setView('chat');
+    } else {
+      const s = makeSession(pid);
+      s.title = p.name;
+      setSessions((prev) => [s, ...prev]);
+      setActiveId(s.id);
+      setView('chat');
+      setTimeout(() => composerRef.current?.focus(), 60);
+    }
+  }, [projects, isDesktop]);
+
+  const addTask = useCallback((status, extra = {}) => {
+    setTasks((prev) => [...prev, {
+      id: uid(),
+      title: extra.title || 'New task',
+      status: extra.status || status,
+      prio: extra.prio || 'normal',
+      due: extra.due || null,
+      createdAt: Date.now(),
+    }]);
+  }, []);
+
+  // `to` is a column id ('progress'|'todo'|'upcoming') or 'done' / 'delete'.
+  const moveTask = useCallback((drag, to) => {
+    if (!drag || !drag.id) return;
+    setTasks((prev) => {
+      if (to === 'delete') return prev.filter((t) => t.id !== drag.id);
+      return prev.map((t) => (t.id === drag.id ? { ...t, status: to } : t));
+    });
+  }, []);
+
+  const readInbox = useCallback((id) => {
+    setInbox((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+  }, []);
+
+  // Attach a file to the ACTIVE chat. Text files keep their content so the
+  // AI can read them; binaries are reference-only.
+  const uploadWsFile = useCallback(async (file) => {
+    if (!file) return;
+    if (file.size > WS_FILE_CAP) { setToast('File too large (max 512 KB)'); return; }
+    const sid = activeIdRef.current;
+    const rec = { id: uid(), sessionId: sid, name: file.name, size: file.size, type: file.type || '', ts: Date.now() };
+    if (TEXT_FILE_EXT.test(file.name)) {
+      try { rec.text = (await file.text()).slice(0, 64 * 1024); }
+      catch { setToast('Could not read that file'); return; }
+    } else {
+      rec.text = '';
+    }
+    setFiles((prev) => [...prev, rec]);
+    setToast('"' + file.name + '" attached to this chat');
+  }, []);
+
+  const removeWsFile = useCallback((id) => {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  const previewWsFile = useCallback((f) => {
+    if (!f) return;
+    setDialog({ type: 'wsfile', file: f });
+  }, []);
+
+  // Put a file straight into the composer so the user can send it now.
+  const injectWsFile = useCallback((f) => {
+    if (!f) return;
+    const body = f.text ? '\n\n' + f.text.slice(0, 4000) : '';
+    composerRef.current?.set('Here is "' + f.name + '"' + body + '\n\n');
+    composerRef.current?.focus();
+    setView('chat');
+    setDialog(null);
+    setToast('File loaded into the message box');
+  }, []);
 
   // ---------- Session ops ----------
   const patchSession = useCallback((id, patch) => {
@@ -249,6 +440,7 @@ export default function App() {
 
   const headerMenu = useCallback((e) => {
     openMenu(e, [
+      { label: 'Workspace home', icon: <IcoHome />, act: () => setView('home') },
       { label: 'New conversation', icon: <IcoPlus />, act: handleNew },
       { label: 'Search chats', icon: <IcoSearch />, act: () => sidebarRef.current?.focusSearch() },
       { label: 'Export current chat', icon: <IcoDownload />, act: () => exportSession(activeIdRef.current) },
@@ -318,6 +510,7 @@ export default function App() {
   const runDialog = useCallback(() => {
     if (!dialog) return;
     if (dialog.type === 'delete') {
+      setFiles((prev) => prev.filter((f) => f.sessionId !== dialog.id));
       setSessions((prev) => {
         const rest = prev.filter((s) => s.id !== dialog.id);
         const next = rest.length ? rest : [makeSession()];
@@ -333,6 +526,8 @@ export default function App() {
       setToast('Messages cleared');
     } else if (dialog.type === 'wipe') {
       store.remove('kenoai_sessions_v2');
+      store.remove(WS_KEY.files);
+      setFiles([]);
       store.remove('kenoai_sessions');
       const fresh = makeSession();
       setSessions([fresh]);
@@ -450,7 +645,15 @@ export default function App() {
 
     // Build API payload synchronously from the captured history snapshot
     const session = history.find((s) => s.id === sid) || history[0];
-    const apiMessages = [{ role: 'system', content: PERSONA_PROMPTS[personaRef.current] }]
+    // Workspace files attached to this chat are injected as system context
+    // so the AI can read the notes/code the user dropped in the sidebar.
+    const wsCtx = filesRef.current
+      .filter((f) => f.sessionId === sid && f.text)
+      .map((f) => '<<<FILE ' + f.name + '>>>\n' + f.text.slice(0, 6000) + '\n<<<END FILE>>>')
+      .join('\n\n');
+    const sysPrompt = PERSONA_PROMPTS[personaRef.current]
+      + (wsCtx ? '\n\nThe user attached these workspace files to this conversation. Use them when relevant:\n\n' + wsCtx.slice(0, WS_CTX_CAP) : '');
+    const apiMessages = [{ role: 'system', content: sysPrompt }]
       .concat(trimForApi(session.messages).map((m) => ({ role: m.role, content: m.content })));
 
     const controller = new AbortController();
@@ -551,6 +754,24 @@ export default function App() {
   const handleSendRef = useRef(handleSend);
   handleSendRef.current = handleSend;
 
+  // Ask bar on the workspace Home: reuse an empty active chat (or create a
+  // fresh one in the active project), switch to the chat view and send now.
+  const askFromHome = useCallback((text) => {
+    const t = String(text || '').trim();
+    if (!t || loading) return;
+    let sid = activeIdRef.current;
+    const cur = sessionsRef.current.find((s) => s.id === sid);
+    if (!cur || cur.messages.length > 0) {
+      const s = makeSession(activeProjectIdRef.current);
+      setSessions((prev) => [s, ...prev]);
+      setActiveId(s.id);
+      sid = s.id;
+    }
+    setView('chat');
+    stickBottomRef.current = true;
+    setTimeout(() => handleSendRef.current(t), 40);
+  }, [loading]);
+
   // ---------- Global keyboard shortcuts ----------
   useEffect(() => {
     const onKey = (e) => {
@@ -589,10 +810,17 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>}>
-        <Landing onLoginSuccess={() => setIsAuthenticated(true)} />
+        <Landing onLoginSuccess={() => {
+          setUser(decodeJwt(store.get('kenoai_auth_token')) || { name: 'there', email: '' });
+          setIsAuthenticated(true);
+          setView('home');
+        }} />
       </Suspense>
     );
   }
+
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const viewTitle = view === 'chat' ? '' : (VIEW_TITLES[view] || 'Workspace');
 
   return (
     <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -607,6 +835,17 @@ export default function App() {
         onItemMenu={chatItemMenu}
         collapsed={isDesktop && collapsed}
         open={isDesktop || sidebarOpen}
+        view={view}
+        onNavigate={navigate}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onOpenProject={openProject}
+        inboxCount={inboxCount}
+        taskCount={taskCount}
+        sessionFiles={files}
+        onFileUpload={uploadWsFile}
+        onFileRemove={removeWsFile}
+        onFilePreview={previewWsFile}
       />
 
       <main className="main">
@@ -621,8 +860,16 @@ export default function App() {
               <IcoSidebar />
             </button>
           )}
-          <div className="ttl" title={activeSession?.title}>
-            {activeSession?.title || 'Conversation'} <span className="accent">· {PERSONAS.find((p) => p.id === persona)?.label}</span>
+          {view === 'chat' && activeProject && (
+            <button type="button" className="ws-proj-chip" onClick={() => openProject(activeProject.id)} title={'Project: ' + activeProject.name}>
+              <span className="ws-proj-dot" style={{ background: activeProject.color }} />
+              {activeProject.name}
+            </button>
+          )}
+          <div className="ttl" title={view === 'chat' ? activeSession?.title : viewTitle}>
+            {view === 'chat' ? (
+              <>{activeSession?.title || 'Conversation'} <span className="accent">· {PERSONAS.find((p) => p.id === persona)?.label}</span></>
+            ) : viewTitle}
           </div>
           <div className="topbar-right">
             {gh && (
@@ -635,21 +882,23 @@ export default function App() {
               <span className="dot" style={{ background: error ? 'var(--danger)' : '#34d399' }} />
               {error ? 'Offline' : 'KenoAi v2'}
             </div>
-            <div className="persona" role="tablist" aria-label="Persona">
-              {PERSONAS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={persona === p.id}
-                  className={persona === p.id ? 'on' : ''}
-                  onClick={() => setPersona(p.id)}
-                  title={`Persona: ${p.label}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            {view === 'chat' && (
+              <div className="persona" role="tablist" aria-label="Persona">
+                {PERSONAS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={persona === p.id}
+                    className={persona === p.id ? 'on' : ''}
+                    onClick={() => setPersona(p.id)}
+                    title={`Persona: ${p.label}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <button type="button" className="icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme" title="Toggle theme">
               {theme === 'dark' ? <IcoSun /> : <IcoMoon />}
             </button>
@@ -659,6 +908,42 @@ export default function App() {
            </div>
         </header>
 
+        {view !== 'chat' ? (
+          <div className="ws-wrap scroll-y">
+            {view === 'home' && (
+              <WorkspaceHome
+                user={user}
+                tasks={tasks}
+                projects={projects.map((p) => ({ ...p, active: p.id === activeProjectId }))}
+                inboxCount={inboxCount}
+                onAsk={askFromHome}
+                onAddTask={() => setView('tasks')}
+                onMoveTask={moveTask}
+                onOpenProject={openProject}
+                stats={{ throughput: 32 }}
+              />
+            )}
+            {view === 'tasks' && (
+              <WorkspaceTasks tasks={tasks} onAddTask={addTask} onMoveTask={moveTask} />
+            )}
+            {view === 'inbox' && (
+              <WorkspaceInbox inbox={inbox} onRead={readInbox} />
+            )}
+            {view === 'calendar' && (
+              <WorkspaceCalendar tasks={tasks} />
+            )}
+            {view === 'reports' && (
+              <WorkspaceReports
+                tasks={tasks}
+                sessions={sessions}
+                projects={projects.map((p) => ({
+                  ...p,
+                  files: files.filter((f) => sessions.some((s) => s.id === f.sessionId && s.projectId === p.id)).length,
+                }))}
+              />
+            )}
+          </div>
+        ) : (
         <div className="chat scroll-y" ref={chatRef} onScroll={onChatScroll} role="log" aria-live="polite">
           {messages.length === 0 ? (
             <div className="welcome">
@@ -693,6 +978,7 @@ export default function App() {
             </Suspense>
           )}
         </div>
+        )}
 
         {jump && (
           <button type="button" className="jump show" onClick={() => { stickBottomRef.current = true; scrollToBottom(); }} aria-label="Scroll to latest">
@@ -700,6 +986,7 @@ export default function App() {
           </button>
         )}
 
+        {view === 'chat' && (
         <Composer
           ref={composerRef}
           onSend={handleSend}
@@ -712,6 +999,7 @@ export default function App() {
           onRemoveImage={() => setImage(null)}
           onMicToggle={toggleMic}
         />
+        )}
       </main>
 
       {/* Context menu */}
@@ -753,6 +1041,25 @@ export default function App() {
               <div className="row">
                 <button className="btn-ghost" onClick={closeDialog}>Cancel</button>
                 <button className="btn-danger" onClick={runDialog}>Save</button>
+              </div>
+            </div>
+          ) : dialog.type === 'wsfile' ? (
+            <div className="modal ws-file-modal" role="dialog" aria-label="Workspace file">
+              <h3 title={dialog.file?.name}>{dialog.file?.name}</h3>
+              <p className="sub">
+                {dialog.file?.text
+                  ? 'Attached to this chat — KenoAi reads it as context when you send a message.'
+                  : 'Binary or image file — kept for reference only.'}
+                {' '}{fmtSizeOf(dialog.file?.size)}
+              </p>
+              {dialog.file?.text && (
+                <pre className="ws-file-pre">{dialog.file.text.slice(0, 4000)}</pre>
+              )}
+              <div className="row">
+                <button className="btn-ghost" onClick={closeDialog}>Close</button>
+                {dialog.file?.text && (
+                  <button className="btn-danger" onClick={() => injectWsFile(dialog.file)}>Send to chat</button>
+                )}
               </div>
             </div>
           ) : dialog.type === 'github' ? (
@@ -844,6 +1151,13 @@ function useMediaQuery(q) {
     return () => mq.removeEventListener('change', fn);
   }, [q]);
   return m;
+}
+
+function fmtSizeOf(n) {
+  if (!n && n !== 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
 }
 
 function copyText(t) {
