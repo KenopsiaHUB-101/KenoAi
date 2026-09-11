@@ -77,7 +77,7 @@ const MAX_CONTEXT_CHARS = 1_500_000;
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
-const CLOUD_AUTH_ENABLED = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const CLOUD_AUTH_ENABLED = process.env.NODE_ENV !== 'test' && Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 
 // ---------- Middleware ----------
 app.disable('x-powered-by');
