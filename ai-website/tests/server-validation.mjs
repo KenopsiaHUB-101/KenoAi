@@ -3,6 +3,11 @@ import http from 'node:http';
 
 process.env.NODE_ENV = 'test';
 process.env.OPENROUTER_API_KEY = 'test-only';
+// Keep this smoke test focused on request validation. Production Supabase
+// configuration may exist in the shell where the test is executed.
+delete process.env.SUPABASE_URL;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+delete process.env.GOOGLE_CLIENT_ID;
 
 const { app } = await import('../server.js');
 const server = http.createServer(app);
