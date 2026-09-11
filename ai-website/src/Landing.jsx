@@ -373,8 +373,8 @@ export default function Landing({ onLoginSuccess }) {
             </div>
             <div className="k-fcard">
               <div className="k-fico c-purple"><IcoGithub /></div>
-              <h3>GitHub connected</h3>
-              <p>Ask about repositories, files, and issues. KenoAi reads your codebase to answer precisely.</p>
+              <h3>GitHub context</h3>
+              <p>Connect a repository, browse its files, and ask KenoAi about code, structure, and issues in context.</p>
             </div>
             <div className="k-fcard">
               <div className="k-fico c-green"><IcoShield /></div>

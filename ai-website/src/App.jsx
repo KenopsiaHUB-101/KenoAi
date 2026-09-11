@@ -161,6 +161,10 @@ export default function App() {
   const [ghInfo, setGhInfo] = useState(null); // {connected, user} from /api/github/status
   const [ghRepos, setGhRepos] = useState(null); // null = not loaded, [] = loaded
   const [ghBusy, setGhBusy] = useState(false);
+  const [ghSummary, setGhSummary] = useState(() => store.get('kenoai_github_summary') || null);
+  const [ghTree, setGhTree] = useState(null);
+  const [ghTreeBusy, setGhTreeBusy] = useState(false);
+  const [ghFile, setGhFile] = useState(null);
 
   // ---------- Workspace state ----------
   const [view, setView] = useState(() => {
@@ -265,6 +269,7 @@ export default function App() {
 
   // Persist the connected repo choice
   useEffect(() => { if (gh) store.set(GH_KEY, gh); else store.remove(GH_KEY); }, [gh]);
+  useEffect(() => { if (ghSummary) store.set('kenoai_github_summary', ghSummary); else store.remove('kenoai_github_summary'); }, [ghSummary]);
 
   // Supabase is optional during local development. When configured, the
   // verified Google user gets one cloud snapshot and local state remains the
@@ -289,6 +294,8 @@ export default function App() {
           if (Array.isArray(payload.activity)) setActivity(payload.activity);
           if (Array.isArray(payload.files)) setFiles(payload.files);
           if (payload.activeProjectId) setActiveProjectId(payload.activeProjectId);
+          if (payload.gh) setGh(payload.gh);
+          if (payload.ghSummary) setGhSummary(payload.ghSummary);
         }
         cloudReadyRef.current = true;
         setCloudSync(result?.snapshot ? 'synced' : 'ready');
@@ -303,7 +310,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isAuthenticated || !cloudReadyRef.current) return undefined;
-    const payload = { version: 1, sessions, projects, tasks, inbox, activity, files, activeProjectId };
+    const payload = { version: 1, sessions, projects, tasks, inbox, activity, files, activeProjectId, gh, ghSummary };
     const timer = setTimeout(() => {
       setCloudSync('saving');
       fetch('/api/workspace/sync', {
@@ -313,7 +320,7 @@ export default function App() {
       }).then((response) => setCloudSync(response.ok ? 'synced' : 'offline')).catch(() => setCloudSync('offline'));
     }, 1200);
     return () => clearTimeout(timer);
-  }, [isAuthenticated, sessions, projects, tasks, inbox, activity, files, activeProjectId]);
+  }, [isAuthenticated, sessions, projects, tasks, inbox, activity, files, activeProjectId, gh, ghSummary]);
 
   // ---------- Scrolling ----------
   const scrollToBottom = useCallback((smooth = true) => {
@@ -514,7 +521,7 @@ export default function App() {
   }, []);
 
   const exportWorkspace = useCallback(() => {
-    const payload = { version: 1, exportedAt: Date.now(), sessions, projects, tasks, inbox, activity, files, activeProjectId };
+    const payload = { version: 1, exportedAt: Date.now(), sessions, projects, tasks, inbox, activity, files, activeProjectId, gh, ghSummary };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -539,6 +546,8 @@ export default function App() {
       if (Array.isArray(payload.activity)) setActivity(payload.activity);
       if (Array.isArray(payload.files)) setFiles(payload.files);
       if (payload.activeProjectId) setActiveProjectId(payload.activeProjectId);
+      if (payload.gh) setGh(payload.gh);
+      if (payload.ghSummary) setGhSummary(payload.ghSummary);
       setToast('Workspace backup imported');
     } catch {
       setToast('Invalid workspace backup');
@@ -619,6 +628,7 @@ export default function App() {
       const d = await res.json();
       if (!d.ok) throw new Error(d.error || 'Could not connect');
       setGh({ owner: r.owner, repo: r.name, branch: r.defaultBranch || d.repo?.defaultBranch || 'main' });
+      setGhSummary(d.repo ? { ...d.repo, readme: d.readme || '' } : null);
       setToast(`Connected to ${r.owner}/${r.name}`);
       closeDialog();
     } catch (err) {
@@ -630,10 +640,61 @@ export default function App() {
 
   const disconnectGithub = useCallback(() => {
     setGh(null);
+    setGhSummary(null);
+    setGhTree(null);
+    setGhFile(null);
     setGhRepos(null); // force a fresh list next time the modal opens
     setToast('GitHub repository disconnected');
     closeDialog();
   }, []);
+
+  const changeGithubRepo = useCallback(() => {
+    setGh(null);
+    setGhSummary(null);
+    setGhTree(null);
+    setGhFile(null);
+    setGhRepos(null);
+    openGithub();
+  }, [openGithub]);
+
+  const loadGithubTree = useCallback(async () => {
+    if (!gh || ghTreeBusy) return;
+    setGhTreeBusy(true);
+    setGhFile(null);
+    try {
+      const branch = encodeURIComponent(gh.branch || 'main');
+      const response = await fetch(`/api/github/tree/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/${branch}`, { headers: authHeaders() });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Could not load repository files');
+      setGhTree(data);
+    } catch (error) {
+      setToast(error.message || 'Could not load repository files');
+    } finally {
+      setGhTreeBusy(false);
+    }
+  }, [gh, ghTreeBusy]);
+
+  const loadGithubFile = useCallback(async (filePath) => {
+    if (!gh || !filePath) return;
+    try {
+      const query = new URLSearchParams({ repo: `${gh.owner}/${gh.repo}`, path: filePath });
+      const response = await fetch(`/api/github/file?${query}`, { headers: authHeaders() });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Could not load file');
+      setGhFile(data);
+    } catch (error) {
+      setToast(error.message || 'Could not load file');
+    }
+  }, [gh]);
+
+  const injectGithubFile = useCallback(() => {
+    if (!ghFile?.content) return;
+    composerRef.current?.set(`Review this GitHub file: ${ghFile.path}\n\n${ghFile.content.slice(0, 12000)}\n\n`);
+    composerRef.current?.focus();
+    setView('chat');
+    closeDialog();
+    setToast('GitHub file loaded into the message box');
+  }, [ghFile]);
 
   // ---------- Dialog actions ----------
   const closeDialog = () => setDialog(null);
@@ -1064,6 +1125,9 @@ export default function App() {
                 onAsk={askFromHome}
                 onAddTask={() => setView('tasks')}
                 onOpenInbox={() => navigate('inbox')}
+                gh={gh}
+                ghSummary={ghSummary}
+                onOpenGithub={() => openGithubRef.current()}
                 activity={activity}
                 onMoveTask={moveTask}
                 onOpenProject={openProject}
@@ -1227,7 +1291,7 @@ export default function App() {
                   {ghInfo === null ? (
                     <p className="sub">Checking the server connection…</p>
                   ) : ghInfo.connected ? (
-                    <p className="sub">Connected as <strong>{ghInfo.user.name}</strong>{ghInfo.user.publicRepos ? ` · ${ghInfo.user.publicRepos} public repos` : ''}</p>
+                    <p className="sub">Repository access via workspace token{ghInfo.user.publicRepos ? ` · ${ghInfo.user.publicRepos} public repos available` : ''}</p>
                   ) : (
                     <p className="sub">Server has no valid GITHUB_TOKEN. Add it to <code>.env</code> next to server.js and restart.</p>
                   )}
@@ -1242,9 +1306,22 @@ export default function App() {
                   </div>
                   <p className="gh-note">KenoAi reads this repository (file tree, README, files you mention) and uses it to answer your questions.</p>
                   <div className="row">
+                    <button className="btn-ghost" onClick={loadGithubTree} disabled={ghTreeBusy}>{ghTreeBusy ? 'Loading files…' : 'Browse files'}</button>
+                    <button className="btn-ghost" onClick={changeGithubRepo}>Change repository</button>
                     <button className="btn-ghost" onClick={() => closeDialog()}>Keep</button>
                     <button className="btn-danger" onClick={disconnectGithub}>Disconnect</button>
                   </div>
+                  {ghTree && (
+                    <div className="gh-browser">
+                      <div className="gh-browser-head"><strong>Repository files</strong><small>{ghTree.count} files{ghTree.truncated ? ' · truncated' : ''}</small></div>
+                      <div className="gh-file-list">
+                        {(ghTree.files || []).map((filePath) => (
+                          <button key={filePath} type="button" className={ghFile?.path === filePath ? 'on' : ''} onClick={() => loadGithubFile(filePath)}><IcoFile /> {filePath}</button>
+                        ))}
+                      </div>
+                      {ghFile && <div className="gh-file-preview"><div className="gh-browser-head"><strong>{ghFile.path}</strong><button type="button" onClick={injectGithubFile}>Send to chat</button></div><pre>{ghFile.content.slice(0, 12000)}</pre></div>}
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -1,7 +1,7 @@
 import React, { memo, useMemo, useState, useCallback } from 'react';
 import {
   IcoSpark, IcoChat, IcoCheck, IcoInbox, IcoCalendar, IcoReports, IcoPlus, IcoClock,
-  IcoSendPaper, IcoFolder, IcoStar, IcoChevronRight, IcoChevronDown, IcoTrash, IcoPencil, IcoFile,
+  IcoSendPaper, IcoFolder, IcoStar, IcoGithub, IcoChevronRight, IcoChevronDown, IcoTrash, IcoPencil, IcoFile,
 } from './icons.jsx';
 
 // ============================================================
@@ -26,7 +26,7 @@ function dueLabel(t, now) {
 }
 
 /* ---------- Home ---------- */
-export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects, onAsk, onAddTask, onMoveTask, onOpenProject, onOpenInbox, inboxCount, stats, activity }) {
+export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects, onAsk, onAddTask, onMoveTask, onOpenProject, onOpenInbox, inboxCount, stats, activity, gh, ghSummary, onOpenGithub }) {
   const [ask, setAsk] = useState('');
   const now = useMemo(() => Date.now(), []);
   const name = (user?.name || user?.email || 'there').split(' ')[0].split('@')[0];
@@ -174,6 +174,24 @@ export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects
             ))}
           </div>
         ) : <div className="ws-activity-empty">Your completed AI work will appear here.</div>}
+      </section>
+
+      <section className="ws-github-card ws-card" aria-labelledby="github-workspace-title">
+        <div className="ws-section-head">
+          <div><h2 id="github-workspace-title">GitHub workspace</h2><p>Bring repository context into every conversation.</p></div>
+          <button type="button" onClick={onOpenGithub}>{gh ? 'Manage repository' : 'Connect repository'} <IcoChevronRight /></button>
+        </div>
+        {gh && ghSummary ? (
+          <div className="ws-github-repo">
+            <div className="ws-github-mark"><IcoGithub /></div>
+            <div className="ws-github-copy"><b>{gh.owner}/{gh.repo}</b><span>{ghSummary.description || 'Repository context ready for KenoAi.'}</span><small>{ghSummary.language || 'Repository'} · {gh.branch || ghSummary.defaultBranch || 'main'} · {ghSummary.private ? 'Private' : 'Public'}</small></div>
+            <div className="ws-github-stats"><b>{ghSummary.stars ?? 0}</b><small>stars</small><b>{ghSummary.openIssues ?? 0}</b><small>issues</small></div>
+          </div>
+        ) : gh ? (
+          <div className="ws-github-empty">Repository connected. Open the repository manager to refresh its metadata.</div>
+        ) : (
+          <div className="ws-github-empty"><IcoGithub /><span>Connect a repository to ask about code, files, and project structure.</span><button type="button" onClick={onOpenGithub}>Open GitHub manager</button></div>
+        )}
       </section>
 
       <div className="ws-stat">
