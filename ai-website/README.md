@@ -1,369 +1,122 @@
-# KenoAi Pro v3 — Advanced AI Assistant Chat
+# KenoAi
 
-**Fast. Private. Beautiful. Streaming.**
+KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, file workspace, dan koneksi GitHub. Frontend menggunakan React + Vite, sedangkan backend Express meneruskan request AI ke OpenRouter tanpa mengekspos API key ke browser.
 
-KenoAi adalah aplikasi AI assistant modern yang menggabungkan streaming real-time, privasi pengguna, dan antarmuka yang indah. Perjalanan pengguna dimulai dari **Landing Page** yang menjelaskan produk + iklan, dilanjutkan dengan **Google Sign-In**, dan kemudian masuk ke **Chat Interface** yang powerful.
+## Fitur saat ini
 
----
+- Landing page responsif dengan Google OAuth.
+- Chat SSE streaming dengan persona Professional, Developer, dan Casual.
+- Fallback otomatis ke model gratis saat provider mengembalikan 429 atau 503.
+- Riwayat percakapan, pin, rename, export Markdown, retry, dan voice input.
+- Workspace Home dengan statistik berbasis data, quick actions, dan Recent Activity.
+- Task board dengan tambah, edit, search, filter, due date, priority, drag-and-drop, selesai, dan hapus.
+- Inbox dengan notifikasi AI otomatis setelah respons selesai, filter, mark all as read, dan link ke chat terkait.
+- Calendar, Reports, workspace files, serta GitHub repository connector.
+- Error Boundary untuk recovery ketika komponen React gagal.
+- Supabase cloud snapshot untuk multi-user workflow dan local-first fallback.
+- Export/import backup workspace JSON berversi.
 
-## 🚀 Fitur Utama
+## Struktur penting
 
-- **Streaming Real-Time**: Jawaban AI muncul karakter per karakter secara langsung (SSE streaming)
-- **Landing Page + Google OAuth**: Pengguna baru disambut dengan penjelasan produk sebelum login
-- **Chat Interface**: Percakapan terorganisir dengan riwayat lokal (localStorage)
-- **Dashboard SaaS**: 7 tab untuk statistics, usage analytics, model management, dll (lazy-loaded)
-- **Multi-Persona**: Pilih antara Professional, Developer, atau Casual mode
-- **Multi-Model**: 22 model AI (18 gratis + 4 premium) via OpenRouter
-- **Responsive Design**: Optimal untuk desktop, tablet, dan mobile
-- **Code Syntax Highlighting**: Dukungan 30+ bahasa pemrograman
-- **Image Support**: Upload dan analisis gambar dengan kompres otomatis
-- **Voice Input** (WIP): Input suara untuk hands-free interaction
-- **Privacy-First**: Semua percakapan disimpan lokal di device, tidak pernah dikirim ke server
-- **Analytics**: Tracking penggunaan token, waktu respons, dan error rates
-
----
-
-## 📦 Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | React 18.3 + Vite 5 + Lazy Loading |
-| **Backend** | Express 5 (Node.js 18+) |
-| **AI Provider** | OpenRouter (22 models) |
-| **Auth** | Google OAuth via @react-oauth/google |
-| **Storage** | localStorage (no database required) |
-| **UI Framework** | CSS3 (zero-dependency, responsive design) |
-| **Code Highlighting** | react-syntax-highlighter + Prism.js |
-| **Markdown** | react-markdown + remark-gfm |
-
----
-
-## 🏗️ Struktur Folder
-
-```
-/workspace/
+```text
+ai-website/
+├── server.js          # Express API, OpenRouter relay, GitHub connector
+├── index.html         # SPA entry, SEO, social metadata, theme bootstrap
+├── public/            # Logo, favicon, manifest
+├── supabase/schema.sql # Schema Supabase + RLS policies
 ├── src/
-│   ├── main.jsx           ← React entry with GoogleOAuthProvider
-│   ├── App.jsx            ← Main app shell (routing: Landing → Chat)
-│   ├── Landing.jsx        ← Landing page (penjelasan + ads)
-│   ├── Login.jsx          ← Google login form
-│   ├── Dashboard.jsx      ← 7-tab SaaS dashboard (lazy-loaded ~16KB)
-│   ├── Sidebar.jsx        ← Chat history + search
-│   ├── Composer.jsx       ← Uncontrolled textarea (0 re-render)
-│   ├── Message.jsx        ← Chat bubble component (memoized)
-│   ├── Markdown.jsx       ← Lazy syntax highlighting
-│   ├── icons.jsx          ← 36 inline SVG icons
-│   ├── lib.js             ← Utility functions + analytics
-│   └── App.css            ← Design system + responsive styles
-├── public/
-│   ├── favicon-32.png
-│   ├── icon-64.png
-│   ├── icon-192.png
-│   ├── apple-touch-icon.png
-│   ├── kenoai-avatar.png  ← AI avatar image
-│   ├── manifest.webmanifest
-│   ├── robots.txt
-│   └── sitemap.xml
-├── dist/                  ← Build output (npm run build)
-├── index.html             ← SPA entry HTML
-├── server.js              ← Express backend
-├── package.json
-├── vite.config.js
-├── .env.example           ← Template for environment variables
-├── .env                   ← Local sandbox only (DO NOT COMMIT)
-└── README.md              ← This file
+│   ├── App.jsx        # Auth gate, chat, workspace state, SSE streaming
+│   ├── Workspace.jsx  # Home, Tasks, Inbox, Calendar, Reports
+│   ├── Workspace.css  # Workspace UI
+│   ├── Landing.jsx    # Public landing page
+│   ├── Landing.css    # Landing-only styles
+│   └── main.jsx       # React bootstrap dan Error Boundary
+└── dist/              # Build production yang di-commit
 ```
 
----
+## Environment variable
 
-## 🔐 Environment Variables
-
-Buat `.env` file di root folder dengan konten berikut:
+Backend membaca `.env` di folder `ai-website/`. File ini tidak boleh di-commit.
 
 ```bash
-# OpenRouter API Key (gratis atau premium)
-# Dapatkan dari: https://openrouter.ai/keys
-VITE_OPENROUTER_KEY=sk-or-v1-YOUR_KEY_HERE
+OPENROUTER_API_KEY=your_openrouter_key
+KENOAI_GITHUB_TOKEN=your_github_token
+KENOAI_API_BASE=https://openrouter.ai/api/v1
+KENOAI_MODEL=google/gemma-4-31b-it:free
+PORT=5000
 
-# Google OAuth Client ID
-# Buat di: https://console.cloud.google.com
-# Authorized redirect URIs: http://localhost:5000, http://localhost:5100
-VITE_GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID_HERE
-
-# Server Port
-PORT=5100
-NODE_ENV=development
+# Optional multi-user sync, server only
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
 ```
 
-**⚠️ PENTING**: Jangan commit `.env` ke Git. File ini sudah di `.gitignore`.
+Frontend membutuhkan `VITE_GOOGLE_CLIENT_ID` saat build. Nilai ini harus berada di `.env` folder `/workspace/build-temp/`, bukan ditulis di source repo.
 
----
+## Aturan build
 
-## 💻 Installation & Setup
+Jangan menjalankan `npm install` atau build menggunakan `node_modules` di repo ini. `node_modules` yang ada adalah build Termux/ARM64 untuk device pemilik repo.
 
-### Prerequisites
-- Node.js 18+
-- npm atau yarn
-- Git
-
-### Local Development (Sandbox)
+Build frontend dilakukan dari sandbox eksternal:
 
 ```bash
-# Clone atau extract repository
-cd /workspace
-
-# Install dependencies
-npm install
-
-# Set environment variables
-cp .env.example .env
-# Edit .env dengan API key Anda
-
-# Run development server
-npm run dev
-# Server akan jalan di http://localhost:5173
-# Backend proxy: http://localhost:5000
-
-# Di terminal baru, jalankan backend
-PORT=5100 npm start
-# Server akan jalan di http://localhost:5100 (production mode)
-```
-
-### Production Build
-
-```bash
-# Build for production
+cd /workspace/build-temp
+rm -rf src dist public
+cp -r /workspaces/KenoAi/ai-website/src .
+cp -r /workspaces/KenoAi/ai-website/public .
+cp /workspaces/KenoAi/ai-website/index.html /workspaces/KenoAi/ai-website/package.json .
+# Pastikan .env berisi VITE_GOOGLE_CLIENT_ID
 npm run build
-# Output: dist/ folder (~500KB total)
-
-# Test production build
-npm start
-# Server akan jalan di http://localhost:5100
 ```
 
----
+Setelah build berhasil, salin `dist/` hasil build ke `ai-website/dist/`. Jangan mengedit `dist/` secara manual.
 
-## 🔄 User Journey
+## Menjalankan server
 
-### 1. **Landing Page** (`/`)
-   - Pengguna melihat penjelasan KenoAi
-   - Melihat features dan ads
-   - Click "Sign in" atau "Get Started with Google"
+Di device pemilik repo:
 
-### 2. **Login** (`/login`)
-   - Google OAuth popup
-   - Token disimpan ke localStorage (30 hari)
-   - Redirect ke Chat interface
-
-### 3. **Chat Interface** (`/chat`)
-   - Welcome screen dengan suggested prompts
-   - Input pesan + upload gambar
-   - Real-time streaming response
-   - Sidebar dengan chat history
-   - Topbar dengan model selector + persona chooser
-
-### 4. **Dashboard** (optional)
-   - Tab: Conversations, Models, Usage, Settings, dll
-   - Analytics: token usage, response time, error tracking
-
----
-
-## 🎨 Design System
-
-### Colors
-- **Primary Accent**: `#6366f1` (Indigo 500)
-- **Light Background**: `#f4f5f9`
-- **Dark Background**: `#0b0d12`
-- **Text Primary**: `#14161d`
-- **Text Secondary**: `#5a6273`
-- **Border**: `rgba(15, 18, 30, 0.1)`
-
-### Responsive Breakpoints
-- **Mobile**: < 768px
-- **Tablet**: 768px - 1023px
-- **Desktop**: 1024px - 1439px
-- **Wide**: >= 1440px
-
-### Typography
-- **Font**: System sans-serif (Inter/SF Pro Display fallback)
-- **Body**: 15px / 1.55 line-height
-- **Headings**: 700 weight, various sizes (18px - 48px)
-
----
-
-## 📊 API Endpoints
-
-### Frontend → Backend
-
-| Endpoint | Method | Fungsi | Auth |
-|----------|--------|--------|------|
-| `/` | GET | Serve SPA (index.html) | ✗ |
-| `/api/health` | GET | Health check | ✗ |
-| `/api/models` | GET | List 22 models (cached) | ✗ |
-| `/api/account` | GET | User tier + usage info (via OpenRouter) | ✓ |
-| `/api/ai-stream` | POST | Chat streaming via SSE | ✓ |
-
-**POST /api/ai-stream Body:**
-```json
-{
-  "prompt": "Explain how transformers work",
-  "model": "google/gemma-4-31b-it:free",
-  "persona": "professional",
-  "image": null
-}
-```
-
----
-
-## 🛠️ Development Tips
-
-### Debugging
-- Open browser DevTools: `F12`
-- Check Console tab untuk errors
-- Check Network tab untuk API calls
-- Check Application → localStorage untuk user data
-
-### localStorage Keys
-
-| Key | Type | Contoh Nilai |
-|-----|------|-------------|
-| `kenoai_auth_token` | JWT string | `eyJ...` |
-| `kenoai_sessions_v2` | Array JSON | `[{id: "m-1", title: "...", messages: [...]}]` |
-| `kenoai_usage_v1` | Array JSON | `[{model, tokens, msElapsed, error}]` |
-| `kenoai_model` | String | `"google/gemma-4-31b-it:free"` |
-| `kenoai_persona` | String | `"professional"` \| `"programmer"` \| `"casual"` |
-| `kenoai_theme` | String | `"light"` \| `"dark"` |
-| `kenoai_sidebar_collapsed` | Boolean | `false` |
-
-### Adding New Features
-1. Create component di `src/ComponentName.jsx`
-2. Import ke `App.jsx`
-3. Update `App.css` untuk styling
-4. Test di browser dengan DevTools
-
-### Performance Tips
-- Use `lazy()` untuk large components (misal: Dashboard)
-- Memoize expensive components dengan `React.memo()`
-- Debounce expensive functions (misal: localStorage save)
-- Use uncontrolled components untuk high-frequency updates (misal: Composer)
-
----
-
-## 📱 Mobile Optimization
-
-Landing page dan chat interface sudah fully responsive:
-- Sidebar collapse otomatis di mobile
-- Touch-friendly buttons (min 44px)
-- Flexible layouts dengan CSS grid/flexbox
-- Viewport optimized (viewport-fit=cover)
-
-Testing di mobile:
 ```bash
-# Open DevTools → Toggle device toolbar (Ctrl+Shift+M)
-# Test pada ukuran: 375px (iPhone SE), 390px (iPhone 14), 412px (Android)
+cd ai-website
+npm run start
 ```
 
----
+Server production menggunakan port `5000`. Gunakan port `5001`, `5098`, atau `5099` hanya untuk testing.
 
-## 🚀 Deployment
+Endpoint penting:
 
-### Option 1: Deploy Built Files to S3 (via agent)
+- `GET /api/health` untuk status server.
+- `GET /api/models` untuk katalog model.
+- `POST /api/ai-stream` untuk SSE chat streaming.
+- `/api/github/*` untuk connector GitHub.
+
+## Keamanan dan batasan
+
+- API key OpenRouter dan GitHub token hanya berada di server.
+- Payload chat dibatasi jumlah pesan, ukuran message, persona, role, dan context total.
+- Rate limit endpoint API berbasis IP diterapkan di server.
+- Jika Supabase dikonfigurasi, Google credential diverifikasi server-side dan workspace snapshot disimpan per user.
+- Jika Supabase belum dikonfigurasi, aplikasi tetap berjalan dalam local mode menggunakan `localStorage`.
+- `SUPABASE_SERVICE_ROLE_KEY` hanya boleh berada di server dan tidak boleh diawali `VITE_`.
+- Jangan menyimpan secret di log, source code, `memory.md`, atau output terminal.
+
+## Supabase multi-user
+
+1. Buat project Supabase.
+2. Jalankan isi `supabase/schema.sql` di SQL Editor.
+3. Isi `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `GOOGLE_CLIENT_ID` di `.env` server.
+4. Pastikan Google OAuth client ID yang dipakai build sama dengan `GOOGLE_CLIENT_ID` server.
+5. Restart server. Endpoint `/api/health` harus menampilkan `cloudAuth: true`.
+
+Server memverifikasi credential Google melalui Google tokeninfo, memetakan `google_sub` ke `app_users`, lalu menyimpan satu snapshot workspace per user. Browser tidak pernah menerima service-role key.
+
+## Validasi perubahan
+
+Sebelum mengirim perubahan:
+
 ```bash
-# Agent runs:
-npm run build
-deploy name="kenoai-v3" directory_path="dist"
-# Generated URL: https://kenoai-v3.pages.dev
+git diff --check
+cd ai-website && node --check server.js
+npm test
 ```
 
-### Option 2: Deploy Server to Termux (Manual)
-```bash
-# User downloads: kenoai-v3-dist.zip dari GitHub release
-unzip kenoai-v3-dist.zip
-npm install
-PORT=5000 npm start
-# Access: http://localhost:5000 (di Termux)
-```
-
----
-
-## 🐛 Known Issues & Fixes
-
-| Issue | Status | Workaround |
-|-------|--------|-----------|
-| Manifest.webmanifest parse error (browser cache) | ⚠️ Minor | Clear browser cache or use private window |
-| Google OAuth requires valid client ID | 🔧 Config | Get OAuth credentials dari Google Console |
-| localStorage limited to ~5MB | 📌 Limitation | Auto-strip old images kalau penuh |
-| SSE timeout di proxy > 60s | 🔧 Rare | Pastikan backend timeout cukup |
-
----
-
-## 📈 Analytics & Monitoring
-
-KenoAi tracks (locally, no server logging):
-- Token usage per model
-- Response time per request
-- Error rates
-- User persona preferences
-- Chat history metadata
-
-Data disimpan di localStorage key `kenoai_usage_v1` (max 800 entries, auto-rotate).
-
----
-
-## 🔒 Privacy & Security
-
-✅ **Privacy First**
-- Semua percakapan disimpan lokal (device-only)
-- Tidak ada tracking pixel atau analytics external
-- Tidak ada data collection dari UI interactions
-- Token hanya dikirim ke OpenRouter API (via backend proxy)
-
-✅ **Security**
-- HTTPS recommended untuk production
-- CORS restriction: `/api` same-origin only
-- No credentials in localStorage (auth token hanya untuk session)
-- Input sanitization via react-markdown
-
----
-
-## 🤝 Contributing
-
-Kontribusi welcome! Format:
-1. Fork repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -am 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
----
-
-## 📄 License
-
-MIT License — Free to use, modify, and distribute.
-
----
-
-## 🙋 Support
-
-- **Issues**: GitHub Issues
-- **Docs**: https://kenoai.app/docs (WIP)
-- **Contact**: hi@kenoai.app
-
----
-
-## 🎯 Roadmap (Future)
-
-- [ ] Voice input + text-to-speech
-- [ ] Cloud sync (optional, user opt-in)
-- [ ] Shared conversations (public links)
-- [ ] Browser extension
-- [ ] Mobile app (React Native)
-- [ ] Team/Organization accounts
-- [ ] Custom model fine-tuning
-- [ ] Plugins ecosystem
-
----
-
-**Made with ❤️ by KenoAi Team**
-
-*Last updated: September 2026*
+Untuk perubahan frontend, gunakan build sandbox eksternal seperti pada bagian build. Test sebaiknya mencakup login, streaming sukses/gagal, retry, Inbox otomatis, edit task, filter, dan responsive mobile.

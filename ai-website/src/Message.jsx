@@ -8,7 +8,7 @@ import { IcoCopy, IcoVolume, IcoAlert } from './icons.jsx';
 // and never while other messages stream.
 // ============================================================
 
-const Message = memo(function Message({ msg, onCopy, onSpeak, streaming }) {
+const Message = memo(function Message({ msg, onCopy, onSpeak, onRetry, streaming }) {
   const isUser = msg.role === 'user';
   const text = typeof msg.content === 'string' ? msg.content : msg.rawText || '';
 
@@ -32,7 +32,7 @@ const Message = memo(function Message({ msg, onCopy, onSpeak, streaming }) {
 
       <div className="msg-body">
         {isUser ? <p>{text}</p> : msg.error ? (
-          <p>{text} <span style={{ opacity: 0.7 }}>(tap "Retry" in the composer)</span></p>
+          <div className="msg-error-copy"><p>{text}</p><button type="button" className="msg-retry" onClick={onRetry}>Retry response</button></div>
         ) : (
           <>
             <Markdown text={text} />

@@ -26,7 +26,7 @@ function dueLabel(t, now) {
 }
 
 /* ---------- Home ---------- */
-export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects, onAsk, onAddTask, onMoveTask, onOpenProject, inboxCount, stats }) {
+export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects, onAsk, onAddTask, onMoveTask, onOpenProject, onOpenInbox, inboxCount, stats, activity }) {
   const [ask, setAsk] = useState('');
   const now = useMemo(() => Date.now(), []);
   const name = (user?.name || user?.email || 'there').split(' ')[0].split('@')[0];
@@ -50,8 +50,9 @@ export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects
       </div>
 
       <div className="ws-status">
-        <span className="ws-status-item teal"><span className="dot" /> Proposal delivered on time</span>
-        <span className="ws-status-item purple"><span className="dot" /> Client confirmation scheduled</span>
+        <span className="ws-status-item teal"><span className="dot" /> {stats?.activeTasks ?? 0} active tasks</span>
+        <span className="ws-status-item purple"><span className="dot" /> {inboxCount} unread updates</span>
+        <span className="ws-status-item blue"><span className="dot" /> {stats?.conversations ?? 0} conversations</span>
       </div>
 
       <div className="ws-greet">
@@ -67,6 +68,30 @@ export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects
           />
           <button type="button" className="ws-ask-btn" onClick={askGo}><IcoSendPaper /> Ask</button>
         </div>
+      </div>
+
+      <div className="ws-metrics" aria-label="Workspace overview">
+        <div className="ws-metric">
+          <span className="ws-metric-label">Active tasks</span>
+          <strong>{stats?.activeTasks ?? 0}</strong>
+          <small>{stats?.overdueTasks ?? 0} overdue</small>
+        </div>
+        <div className="ws-metric">
+          <span className="ws-metric-label">Completed</span>
+          <strong>{stats?.completedTasks ?? 0}</strong>
+          <small>{stats?.completionRate ?? 0}% completion rate</small>
+        </div>
+        <div className="ws-metric">
+          <span className="ws-metric-label">Messages</span>
+          <strong>{stats?.messages ?? 0}</strong>
+          <small>Across your workspace</small>
+        </div>
+      </div>
+
+      <div className="ws-quick-actions" aria-label="Quick actions">
+        <button type="button" onClick={() => onAsk('Summarize my workspace: projects, tasks and upcoming deadlines')}><IcoSpark /> Workspace summary</button>
+        <button type="button" onClick={onAddTask}><IcoPlus /> Add a task</button>
+        <button type="button" onClick={onOpenInbox}><IcoInbox /> View inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</button>
       </div>
 
       <div className="ws-board">
@@ -133,6 +158,24 @@ export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects
         </div>
       </div>
 
+      <section className="ws-activity ws-card" aria-labelledby="recent-activity-title">
+        <div className="ws-section-head">
+          <div><h2 id="recent-activity-title">Recent activity</h2><p>The latest work across your workspace.</p></div>
+          <button type="button" onClick={onOpenInbox}>View inbox <IcoChevronRight /></button>
+        </div>
+        {activity?.length ? (
+          <div className="ws-activity-list">
+            {activity.slice(0, 4).map((item) => (
+              <div key={item.id} className="ws-activity-item">
+                <span className={`ws-activity-icon ${item.type || 'ai'}`}><IcoSpark /></span>
+                <span className="ws-activity-copy"><b>{item.title}</b><small>{item.description}</small></span>
+                <time dateTime={new Date(item.ts).toISOString()}>{new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+              </div>
+            ))}
+          </div>
+        ) : <div className="ws-activity-empty">Your completed AI work will appear here.</div>}
+      </section>
+
       <div className="ws-stat">
         <div>
           <div className="ws-stat-fig">+{stats?.throughput ?? 32}%</div>
@@ -145,11 +188,14 @@ export const WorkspaceHome = memo(function WorkspaceHome({ user, tasks, projects
 });
 
 /* ---------- Tasks (full board) ---------- */
-export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, onMoveTask }) {
+export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, onEditTask, onMoveTask }) {
   const [title, setTitle] = useState('');
   const [prio, setPrio] = useState('normal');
   const [status, setStatus] = useState('todo');
   const [due, setDue] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [taskFilter, setTaskFilter] = useState('all');
+  const [taskSearch, setTaskSearch] = useState('');
   const now = useMemo(() => Date.now(), []);
 
   const add = () => {
@@ -158,18 +204,45 @@ export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, o
     setTitle(''); setDue('');
   };
 
+  const startEdit = (task) => {
+    setEditingId(task.id);
+    setTitle(task.title || '');
+    setPrio(task.prio || 'normal');
+    setStatus(task.status || 'todo');
+    setDue(task.due || '');
+  };
+
+  const saveEdit = () => {
+    if (!editingId || !title.trim()) return;
+    onEditTask(editingId, { title: title.trim(), prio, status, due: due || null });
+    setEditingId(null); setTitle(''); setDue('');
+  };
+
+  const cancelEdit = () => { setEditingId(null); setTitle(''); setDue(''); };
+
   const done = tasks.filter((t) => t.status === 'done');
+  const visibleTasks = tasks.filter((task) => {
+    const matchesFilter = taskFilter === 'all' || (taskFilter === 'overdue' ? task.due && new Date(task.due) < new Date() && task.status !== 'done' : taskFilter === task.status);
+    return matchesFilter && task.title.toLowerCase().includes(taskSearch.toLowerCase());
+  });
 
   return (
     <div className="ws-page">
       <h1 className="ws-title">My tasks</h1>
       <p className="ws-sub">Everything your team is working on, in one board.</p>
 
+      <div className="ws-task-tools">
+        <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" />
+        <select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} aria-label="Filter tasks">
+          <option value="all">All tasks</option><option value="progress">In progress</option><option value="todo">To do</option><option value="upcoming">Upcoming</option><option value="done">Completed</option><option value="overdue">Overdue</option>
+        </select>
+      </div>
+
       <div className="ws-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 18 }}>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') (editingId ? saveEdit() : add()); }}
           placeholder="New task title…"
           aria-label="Task title"
           style={{ flex: '1 1 220px', minWidth: 0, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '9px 12px', color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem', outline: 'none' }}
@@ -184,12 +257,14 @@ export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, o
         </select>
         <input type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Due date"
           style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '9px 10px', color: 'var(--text-primary)', font: 'inherit', fontSize: '0.8rem' }} />
-        <button type="button" className="ws-ask-btn" style={{ border: 'none', cursor: 'pointer' }} onClick={add}><IcoPlus /> Add</button>
+        {editingId ? (
+          <><button type="button" className="ws-ask-btn" style={{ border: 'none', cursor: 'pointer' }} onClick={saveEdit}><IcoCheck /> Save</button><button type="button" className="ws-task-cancel" onClick={cancelEdit}>Cancel</button></>
+        ) : <button type="button" className="ws-ask-btn" style={{ border: 'none', cursor: 'pointer' }} onClick={add}><IcoPlus /> Add</button>}
       </div>
 
       <div className="ws-board">
         {STATUSES.map((st) => {
-          const list = tasks.filter((t) => t.status === st);
+          const list = visibleTasks.filter((t) => t.status === st);
           return (
             <section key={st} className="ws-col" data-col={st}
               onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }}
@@ -207,6 +282,7 @@ export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, o
                       <span className={`chip-prio ${t.prio}`}>{PRIO_LABEL[t.prio]}</span>
                       <span className="ws-task-title">{t.title}</span>
                       <span className="ws-task-acts">
+                        <button type="button" title="Edit task" onClick={() => startEdit(t)}><IcoPencil /></button>
                         <button type="button" title="Mark done" onClick={() => onMoveTask({ id: t.id }, 'done')}><IcoCheck /></button>
                         <button type="button" title="Delete" onClick={() => onMoveTask({ id: t.id }, 'delete')}><IcoTrash /></button>
                       </span>
@@ -238,20 +314,42 @@ export const WorkspaceTasks = memo(function WorkspaceTasks({ tasks, onAddTask, o
 });
 
 /* ---------- Inbox ---------- */
-export const WorkspaceInbox = memo(function WorkspaceInbox({ inbox, onRead, onOpenChat, sessions }) {
+export const WorkspaceInbox = memo(function WorkspaceInbox({ inbox, onRead, onOpenChat, onMarkAllRead, sessions }) {
+  const [filter, setFilter] = useState('all');
+  const activate = (notification) => {
+    if (onOpenChat) onOpenChat(notification);
+    else onRead(notification.id);
+  };
+  const visibleInbox = inbox.filter((item) => filter === 'all' || (filter === 'unread' ? item.unread : item.type === filter));
+
   return (
     <div className="ws-page">
       <h1 className="ws-title">Inbox</h1>
       <p className="ws-sub">AI activity and task updates land here.</p>
-      {inbox.length === 0 && <div className="ws-empty">Inbox is empty — ask KenoAi something and replies will show up here.</div>}
-      {inbox.map((n) => (
-        <div key={n.id} className={`ws-inbox-item ${n.unread ? 'unread' : ''}`} onClick={() => onRead(n.id)} role="button" tabIndex={0}>
+      <div className="ws-inbox-tools">
+        <div className="ws-filter-tabs" role="tablist" aria-label="Inbox filters">
+          {['all', 'unread', 'ai', 'task'].map((value) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? 'on' : ''} onClick={() => setFilter(value)}>{value === 'all' ? 'All' : value === 'unread' ? 'Unread' : value === 'ai' ? 'AI activity' : 'Tasks'}</button>)}
+        </div>
+        <button type="button" className="ws-mark-read" onClick={onMarkAllRead}>Mark all as read</button>
+      </div>
+      {visibleInbox.length === 0 && <div className="ws-empty">No updates in this filter yet.</div>}
+      {visibleInbox.map((n) => (
+        <div
+          key={n.id}
+          className={`ws-inbox-item ${n.unread ? 'unread' : ''}`}
+          onClick={() => activate(n)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(n); } }}
+          role="button"
+          tabIndex={0}
+          aria-label={`${n.title}. Open related chat`}
+        >
           <span className="ws-inbox-ico"><IcoSpark /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="ws-inbox-ttl">{n.title}</div>
             <p>{n.preview}</p>
           </div>
           <span className="ws-inbox-time">{new Date(n.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className="ws-inbox-open">Open chat <IcoChevronRight /></span>
         </div>
       ))}
     </div>

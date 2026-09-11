@@ -41,6 +41,7 @@
 .ws-status-item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k-teal, #12b5a2); flex: none; }
 .ws-status-item.teal .dot { background: #12b5a2; }
 .ws-status-item.purple .dot { background: var(--accent-primary); }
+.ws-status-item.blue .dot { background: #3b7dfa; }
 
 /* ---------- greeting + ask bar ---------- */
 .ws-greet { margin-bottom: 22px; }
@@ -72,6 +73,43 @@
 }
 .ws-ask .ws-ask-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
 
+/* ---------- dashboard overview ---------- */
+.ws-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.ws-metric {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: end;
+  background: var(--bg-secondary); border: 1px solid var(--border-color);
+  border-radius: 14px; padding: 14px 16px;
+}
+.ws-metric-label { color: var(--text-tertiary); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.ws-metric strong { grid-row: span 2; color: var(--text-primary); font-size: 1.55rem; line-height: 1; }
+.ws-metric small { color: var(--text-tertiary); font-size: 0.72rem; }
+.ws-quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.ws-quick-actions button {
+  display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-color);
+  border-radius: 9px; padding: 8px 11px; background: var(--bg-secondary); color: var(--text-secondary);
+  cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 650; transition: border-color .16s, color .16s, background .16s, transform .16s;
+}
+.ws-quick-actions button:hover { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--bg-hover); transform: translateY(-1px); }
+.ws-quick-actions svg { width: 14px; height: 14px; }
+
+/* ---------- recent activity ---------- */
+.ws-activity { margin-top: 22px; }
+.ws-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.ws-section-head h2 { margin: 0 0 3px; color: var(--text-primary); font-size: 0.98rem; }
+.ws-section-head p { margin: 0; color: var(--text-tertiary); font-size: 0.76rem; }
+.ws-section-head button { display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 3px 0; background: transparent; color: var(--accent-primary); cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 700; white-space: nowrap; }
+.ws-section-head button svg { width: 14px; height: 14px; }
+.ws-activity-list { display: flex; flex-direction: column; }
+.ws-activity-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.ws-activity-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: none; border-radius: 9px; color: var(--accent-primary); background: var(--bg-tertiary); }
+.ws-activity-icon.task { color: #12b5a2; background: rgba(18, 181, 162, 0.12); }
+.ws-activity-icon svg { width: 15px; height: 15px; }
+.ws-activity-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ws-activity-copy b { overflow: hidden; color: var(--text-primary); font-size: 0.79rem; text-overflow: ellipsis; white-space: nowrap; }
+.ws-activity-copy small { overflow: hidden; color: var(--text-tertiary); font-size: 0.73rem; text-overflow: ellipsis; white-space: nowrap; }
+.ws-activity-item time { flex: none; color: var(--text-tertiary); font-size: 0.68rem; }
+.ws-activity-empty { padding: 14px 0 2px; color: var(--text-tertiary); font-size: 0.78rem; }
+
 /* ---------- task board (3 columns) ---------- */
 .ws-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 22px; align-items: start; }
 .ws-col { background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 16px; padding: 14px; min-height: 200px; }
@@ -101,6 +139,12 @@
 .ws-task-acts { display: flex; gap: 4px; }
 .ws-task-acts button { background: transparent; border: none; cursor: pointer; color: var(--text-tertiary); border-radius: 7px; padding: 3px 5px; display: inline-flex; }
 .ws-task-acts button:hover { color: var(--accent-primary); background: var(--bg-hover); }
+.ws-task-cancel { border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 12px; color: var(--text-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 0.8rem; }
+.ws-task-cancel:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+.ws-task-tools { display: flex; gap: 8px; margin-bottom: 10px; }
+.ws-task-tools input, .ws-task-tools select { min-width: 0; border: 1px solid var(--border-color); border-radius: 10px; padding: 9px 11px; color: var(--text-primary); background: var(--bg-secondary); font: inherit; font-size: 0.8rem; outline: none; }
+.ws-task-tools input { flex: 1; }
+.ws-task-tools input:focus, .ws-task-tools select:focus { border-color: var(--accent-primary); }
 
 .chip-prio {
   font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em;
@@ -323,11 +367,20 @@
   cursor: pointer; transition: border-color .15s, transform .15s;
 }
 .ws-inbox-item:hover { border-color: var(--accent-primary); transform: translateY(-1px); }
+.ws-inbox-item:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .ws-inbox-item.unread { border-left: 3px solid var(--accent-primary); }
 .ws-inbox-item .ws-inbox-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--bg-tertiary); color: var(--accent-primary); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ws-inbox-item .ws-inbox-ttl { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); }
 .ws-inbox-item p { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-tertiary); }
 .ws-inbox-item .ws-inbox-time { font-size: 0.68rem; color: var(--text-tertiary); margin-left: auto; flex: none; }
+.ws-inbox-open { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-primary); font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
+.ws-inbox-open svg { width: 13px; height: 13px; }
+.ws-inbox-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ws-filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.ws-filter-tabs button, .ws-mark-read { border: 1px solid var(--border-color); border-radius: 8px; padding: 6px 9px; color: var(--text-tertiary); background: transparent; cursor: pointer; font: inherit; font-size: 0.72rem; }
+.ws-filter-tabs button:hover, .ws-filter-tabs button.on { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--bg-hover); }
+.ws-mark-read { color: var(--accent-primary); white-space: nowrap; }
+.ws-mark-read:hover { background: var(--bg-hover); }
 
 /* ---------- reports ---------- */
 .ws-rep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
@@ -346,7 +399,7 @@
 .ws-bars .ws-bar:hover > i { opacity: 1; }
 .ws-bars .ws-bar > span { text-align: center; font-size: 0.66rem; color: var(--text-tertiary); margin-top: 6px; }
 .ws-rep-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-.ws-rep-table th { text-align: left; color: var(--text-terriary); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; padding: 8px 10px; border-bottom: 1px solid var(--border-color); }
+.ws-rep-table th { text-align: left; color: var(--text-tertiary); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; padding: 8px 10px; border-bottom: 1px solid var(--border-color); }
 .ws-rep-table td { padding: 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
 .ws-rep-table tr:last-child td { border-bottom: none; }
 
@@ -361,6 +414,11 @@
 }
 @media (max-width: 620px) {
   .ws-page { padding: 14px 14px 40px; }
+  .ws-task-tools { flex-direction: column; }
+  .ws-inbox-tools { align-items: flex-start; flex-direction: column; }
+  .ws-metrics { grid-template-columns: 1fr; }
+  .ws-quick-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .ws-quick-actions button:last-child { grid-column: 1 / -1; }
   .ws-rep-grid { grid-template-columns: 1fr; }
   .ws-stat { right: 14px; bottom: 14px; padding: 8px 12px; }
 }

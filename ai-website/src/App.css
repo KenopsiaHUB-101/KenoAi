@@ -76,6 +76,15 @@
   --font-bold: 700;
 }
 
+.error-recovery { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; background: var(--bg-primary); color: var(--text-primary); }
+.error-recovery img { border-radius: 14px; box-shadow: var(--shadow-lg); }
+.error-recovery h1 { margin: 4px 0 0; font-size: 1.5rem; }
+.error-recovery p { max-width: 420px; margin: 0; color: var(--text-tertiary); line-height: 1.6; }
+.error-recovery button { border: 0; border-radius: 10px; padding: 10px 16px; color: #fff; background: var(--accent-primary); cursor: pointer; font: inherit; font-weight: 700; }
+.msg-error-copy p { margin-bottom: 9px; }
+.msg-retry { border: 1px solid var(--accent-primary); border-radius: 8px; padding: 6px 10px; color: var(--accent-primary); background: transparent; cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 700; }
+.msg-retry:hover { color: #fff; background: var(--accent-primary); }
+
 /* ========================================
    Animations
    ======================================== */

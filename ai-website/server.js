@@ -71,6 +71,14 @@ const DEFAULT_MODEL =
     ? process.env.KENOAI_MODEL
     : 'google/gemma-4-31b-it:free'; // ← ganti default di sini atau via .env (KENOAI_MODEL)
 
+const MAX_MESSAGES = 64;
+const MAX_MESSAGE_CHARS = 120_000;
+const MAX_CONTEXT_CHARS = 1_500_000;
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+const CLOUD_AUTH_ENABLED = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+
 // ---------- Middleware ----------
 app.disable('x-powered-by');
 app.use(express.json({ limit: `${MAX_BODY_MB}mb` }));
@@ -80,8 +88,64 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://openrouter.ai https://api.github.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   next();
 });
+
+const googleTokenCache = new Map();
+
+async function verifyGoogleCredential(token) {
+  const cached = googleTokenCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) return cached.user;
+  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+  if (!response.ok) throw new Error('Google credential rejected');
+  const data = await response.json();
+  if (!data.sub || !data.email || (GOOGLE_CLIENT_ID && data.aud !== GOOGLE_CLIENT_ID)) {
+    throw new Error('Google credential audience or identity is invalid');
+  }
+  const user = { googleSub: data.sub, email: data.email, displayName: data.name || data.email, avatarUrl: data.picture || '' };
+  googleTokenCache.set(token, { user, expiresAt: Date.now() + 5 * 60_000 });
+  if (googleTokenCache.size > 1000) {
+    for (const [key, value] of googleTokenCache) if (value.expiresAt < Date.now()) googleTokenCache.delete(key);
+  }
+  return user;
+}
+
+async function supabaseRequest(endpoint, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!response.ok) throw new Error(`Supabase request failed (${response.status})`);
+  return response.status === 204 ? null : response.json();
+}
+
+async function requireUser(req, res, next) {
+  if (!CLOUD_AUTH_ENABLED) return next();
+  const header = String(req.headers.authorization || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!token) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const identity = await verifyGoogleCredential(token);
+    const rows = await supabaseRequest('app_users?on_conflict=google_sub', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({ google_sub: identity.googleSub, email: identity.email, display_name: identity.displayName, avatar_url: identity.avatarUrl, updated_at: new Date().toISOString() }),
+    });
+    const user = Array.isArray(rows) ? rows[0] : null;
+    if (!user?.id) throw new Error('Supabase user mapping failed');
+    req.user = { ...identity, id: user.id };
+    next();
+  } catch (error) {
+    console.warn('[auth] request rejected:', error.message);
+    res.status(401).json({ error: 'Authentication could not be verified.' });
+  }
+}
 
 // ---------- Rate limiter (per IP) ----------
 const hits = new Map();
@@ -110,12 +174,42 @@ app.use(express.static(DIST, { maxAge: '1y', index: false, immutable: true }));
 
 // ---------- API: health ----------
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), ts: Date.now() });
+  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), cloudAuth: CLOUD_AUTH_ENABLED, supabase: CLOUD_AUTH_ENABLED ? 'configured' : 'not-configured', ts: Date.now() });
 });
 
 // ---------- API: model list (for a future UI picker) ----------
 app.get('/api/models', (req, res) => {
   res.json({ ok: true, default: DEFAULT_MODEL, models: MODELS });
+});
+
+app.get('/api/workspace/sync', requireUser, async (req, res) => {
+  if (!CLOUD_AUTH_ENABLED) return res.status(503).json({ error: 'Supabase sync is not configured.' });
+  try {
+    const rows = await supabaseRequest(`workspace_snapshots?user_id=eq.${encodeURIComponent(req.user.id)}&select=payload,version,updated_at`);
+    res.json({ ok: true, snapshot: rows?.[0] || null });
+  } catch (error) {
+    console.error('[workspace] read failed:', error.message);
+    res.status(502).json({ error: 'Could not read workspace backup.' });
+  }
+});
+
+app.put('/api/workspace/sync', requireUser, async (req, res) => {
+  if (!CLOUD_AUTH_ENABLED) return res.status(503).json({ error: 'Supabase sync is not configured.' });
+  const payload = req.body?.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || JSON.stringify(payload).length > 8_000_000) {
+    return res.status(413).json({ error: 'Workspace payload is invalid or too large.' });
+  }
+  try {
+    const rows = await supabaseRequest('workspace_snapshots?on_conflict=user_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({ user_id: req.user.id, payload, version: Number(payload.version) || 1, updated_at: new Date().toISOString() }),
+    });
+    res.json({ ok: true, snapshot: Array.isArray(rows) ? rows[0] : null });
+  } catch (error) {
+    console.error('[workspace] write failed:', error.message);
+    res.status(502).json({ error: 'Could not save workspace backup.' });
+  }
 });
 
 // ---------- GitHub connector ----------
@@ -177,6 +271,8 @@ function ghHandle(err, res) {
   console.error('[github]', err.message);
   if (!res.headersSent) res.status(err.status || 500).json({ error: err.message });
 }
+
+app.use('/api/github', requireUser);
 
 // GET /api/github/status -> token valid? + connected account info
 app.get('/api/github/status', rateLimit, async (req, res) => {
@@ -327,7 +423,7 @@ function freeFallbackChain(requestedModel) {
 
 const FALLBACK_STATUSES = new Set([429, 503]);
 
-app.post('/api/ai-stream', rateLimit, async (req, res) => {
+app.post('/api/ai-stream', rateLimit, requireUser, async (req, res) => {
   const { messages, persona, model, github } = req.body || {};
 
   if (!OPENROUTER_API_KEY) {
@@ -336,8 +432,31 @@ app.post('/api/ai-stream', rateLimit, async (req, res) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'A non-empty "messages" array is required.' });
   }
-  if (messages.length > 64) {
+  if (messages.length > MAX_MESSAGES) {
     return res.status(400).json({ error: 'Too many messages in one request.' });
+  }
+  let contextChars = 0;
+  for (const message of messages) {
+    if (!message || !['system', 'user', 'assistant'].includes(message.role)) {
+      return res.status(400).json({ error: 'Every message must have a valid role.' });
+    }
+    if (typeof message.content !== 'string' && !Array.isArray(message.content)) {
+      return res.status(400).json({ error: 'Every message must have text or multimodal content.' });
+    }
+    const size = JSON.stringify(message.content).length;
+    contextChars += size;
+    if (size > MAX_MESSAGE_CHARS) {
+      return res.status(413).json({ error: 'One message is too large.' });
+    }
+  }
+  if (contextChars > MAX_CONTEXT_CHARS) {
+    return res.status(413).json({ error: 'Conversation context is too large.' });
+  }
+  if (persona !== undefined && !['professional', 'programmer', 'casual'].includes(persona)) {
+    return res.status(400).json({ error: 'Unknown persona.' });
+  }
+  if (github !== undefined && (!github || typeof github !== 'object' || Array.isArray(github))) {
+    return res.status(400).json({ error: 'Invalid GitHub context.' });
   }
   if (model !== undefined && !MODELS.some((m) => m.id === model)) {
     return res.status(400).json({ error: `Unknown model "${model}". GET /api/models for the list.` });
@@ -533,7 +652,8 @@ app.use((req, res) => {
 });
 
 // ---------- Start ----------
-app.listen(PORT, () => {
+function startServer() {
+  app.listen(PORT, () => {
   const freeCount = MODELS.filter((m) => m.free).length;
   console.log(`KenoAi backend + SPA on http://localhost:${PORT}`);
   console.log(`  model  : ${DEFAULT_MODEL} (default)`);
@@ -559,4 +679,9 @@ app.listen(PORT, () => {
   if (process.env.KENOAI_MODEL && !MODELS.some((m) => m.id === process.env.KENOAI_MODEL)) {
     console.warn(`  warning: KENOAI_MODEL="${process.env.KENOAI_MODEL}" is not in the catalogue — using ${DEFAULT_MODEL}.`);
   }
-});
+  });
+}
+
+if (process.env.NODE_ENV !== 'test') startServer();
+
+export { app, startServer };

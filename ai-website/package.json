@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "start:dev": "node server.js"
+    "start:dev": "node server.js",
+    "test": "node tests/server-validation.mjs"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.5",

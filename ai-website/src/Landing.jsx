@@ -304,6 +304,16 @@ export default function Landing({ onLoginSuccess }) {
         </div>
       </section>
 
+      {/* ================= TRUST STRIP ================= */}
+      <section className="k-proof" aria-label="Why teams choose KenoAi" data-animate>
+        <div className="k-container k-proof-in">
+          <span className="k-proof-lead">Built for focused work</span>
+          <div className="k-proof-item"><IcoShield /><span><b>Private by design</b><small>Your workspace stays yours</small></span></div>
+          <div className="k-proof-item"><IcoGithub /><span><b>Works with GitHub</b><small>Bring your code context</small></span></div>
+          <div className="k-proof-item"><IcoBolt /><span><b>Fast by default</b><small>Streaming answers, no waiting</small></span></div>
+        </div>
+      </section>
+
       {/* ================= QUICK STARTS ================= */}
       <section className="k-quick" data-animate>
         <div className="k-container">

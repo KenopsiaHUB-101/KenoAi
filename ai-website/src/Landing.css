@@ -154,6 +154,20 @@ html.k-landing-on { scroll-behavior: smooth; }
 .k-trust li { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; color: var(--k-muted); }
 .k-trust svg { color: var(--k-teal); }
 
+/* ---------- trust strip ---------- */
+.k-proof { padding: 0 0 72px; }
+.k-proof-in {
+  display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); align-items: center; gap: 14px;
+  padding: 18px 22px; background: rgba(255, 255, 255, 0.74); border: 1px solid var(--k-line);
+  border-radius: 18px; box-shadow: var(--k-shadow);
+}
+.k-proof-lead { color: var(--k-purple-deep); font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.k-proof-item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.k-proof-item > svg { flex: none; color: var(--k-purple); }
+.k-proof-item span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.k-proof-item b { color: var(--k-ink); font-size: 12.5px; }
+.k-proof-item small { color: var(--k-muted); font-size: 11.5px; }
+
 /* ---------- hero mockup (dashboard in reference style) ---------- */
 .k-hero-visual { position: relative; }
 .k-hero-mock { position: relative; z-index: 2; animation: kFloat 7s ease-in-out infinite; }
@@ -507,6 +521,8 @@ html.k-landing-on { scroll-behavior: smooth; }
   .mk-body { grid-template-columns: 178px 1fr; }
   .mk-right { display: none; }
   .k-float-a { left: -10px; } .k-float-b { right: -6px; }
+  .k-proof-in { grid-template-columns: repeat(3, 1fr); }
+  .k-proof-lead { grid-column: 1 / -1; }
   .k-quick-grid, .k-feat-grid, .k-teams-grid { grid-template-columns: repeat(2, 1fr); }
   .k-steps { grid-template-columns: repeat(2, 1fr); }
   .k-stats-in { grid-template-columns: repeat(2, 1fr); row-gap: 28px; }
@@ -526,6 +542,9 @@ html.k-landing-on { scroll-behavior: smooth; }
   .k-container { width: calc(100% - 32px); }
   .k-hero { padding: 40px 0 64px; }
   .k-hero-ctas { flex-direction: column; align-items: stretch; }
+  .k-proof { padding-bottom: 54px; }
+  .k-proof-in { grid-template-columns: 1fr; gap: 16px; padding: 18px; }
+  .k-proof-lead { grid-column: auto; }
   .k-btn-lg { width: 100%; }
   .mk { border-radius: 16px; }
   .mk-body { grid-template-columns: 1fr; min-height: 0; }

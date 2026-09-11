@@ -7,7 +7,7 @@ const Landing = lazy(() => import('./Landing.jsx'));
 import { uid, store, trimForApi, compressImage, sseLines, deltaText } from './lib.js';
 import {
   IcoMenu, IcoSidebar, IcoSearch, IcoPlus, IcoDots, IcoSun, IcoMoon, IcoArrowDown,
-  IcoTrash, IcoPencil, IcoPin, IcoDownload, IcoBroom, IcoKeyboard, IcoSpark, IcoAlert, IcoFile, IcoGithub,
+  IcoTrash, IcoPencil, IcoPin, IcoDownload, IcoUpload, IcoBroom, IcoKeyboard, IcoSpark, IcoAlert, IcoFile, IcoGithub,
   IcoHome,
 } from './icons.jsx';
 import './Workspace.css';
@@ -41,6 +41,11 @@ function makeSession(projectId) {
   return { id: uid(), title: 'New Conversation', messages: [], createdAt: Date.now(), updatedAt: Date.now(), projectId: projectId || null };
 }
 
+function authHeaders() {
+  const token = store.get('kenoai_auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ============================================================
 // Workspace (NinjaAI-style): projects, tasks, inbox, calendar,
 // reports + per-chat workspace files. Everything persists via
@@ -51,6 +56,7 @@ const WS_KEY = {
   projects: 'kenoai_projects_v1',
   tasks: 'kenoai_tasks_v1',
   inbox: 'kenoai_inbox_v1',
+  activity: 'kenoai_activity_v1',
   files: 'kenoai_ws_files_v1',
   project: 'kenoai_active_project',
 };
@@ -83,7 +89,7 @@ const SEED_TASKS = [
 ];
 
 const SEED_INBOX = [
-  { id: 'n1', title: 'KenoAi drafted your launch email', preview: 'Your draft is ready in the Product Launch chat.', ts: Date.now() - 3600e3, unread: true },
+  { id: 'n1', title: 'KenoAi drafted your launch email', preview: 'Your draft is ready in the Product Launch chat.', projectId: 'p-launch', ts: Date.now() - 3600e3, unread: true },
   { id: 'n2', title: 'Task due tomorrow', preview: '"Draft Q4 launch messaging" is due tomorrow.', ts: Date.now() - 7200e3, unread: true },
 ];
 
@@ -173,6 +179,11 @@ export default function App() {
     const saved = store.get(WS_KEY.inbox);
     return Array.isArray(saved) && saved.length ? saved : SEED_INBOX.slice();
   });
+  const [activity, setActivity] = useState(() => {
+    const saved = store.get(WS_KEY.activity);
+    return Array.isArray(saved) ? saved : [];
+  });
+  const [cloudSync, setCloudSync] = useState('idle');
   const [files, setFiles] = useState(() => {
     const saved = store.get(WS_KEY.files);
     return Array.isArray(saved) ? saved : [];
@@ -206,6 +217,10 @@ export default function App() {
   const isDesktop = useMediaQuery('(min-width: 1024px)');
   const inboxCount = inbox.filter((n) => n.unread).length;
   const taskCount = tasks.filter((t) => t.status !== 'done').length;
+  const completedTaskCount = tasks.filter((t) => t.status === 'done').length;
+  const overdueTaskCount = tasks.filter((t) => t.due && new Date(t.due) < new Date() && t.status !== 'done').length;
+  const messageCount = sessions.reduce((total, session) => total + (session.messages?.length || 0), 0);
+  const completionRate = tasks.length ? Math.round((completedTaskCount / tasks.length) * 100) : 0;
 
   // ---------- Persistence (debounced, quota-aware) ----------
   useEffect(() => {
@@ -231,6 +246,7 @@ export default function App() {
   useEffect(() => { store.set(WS_KEY.projects, projects); }, [projects]);
   useEffect(() => { store.set(WS_KEY.tasks, tasks); }, [tasks]);
   useEffect(() => { store.set(WS_KEY.inbox, inbox); }, [inbox]);
+  useEffect(() => { store.set(WS_KEY.activity, activity); }, [activity]);
   useEffect(() => { store.set(WS_KEY.files, files); }, [files]);
   useEffect(() => { if (activeProjectId) store.set(WS_KEY.project, activeProjectId); }, [activeProjectId]);
   // The "jump to latest" pill only belongs to the chat log.
@@ -240,7 +256,7 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) return; // nothing to sync while on the landing page
     let on = true;
-    fetch('/api/github/status')
+    fetch('/api/github/status', { headers: authHeaders() })
       .then((r) => r.json())
       .then((d) => on && setGhInfo(d))
       .catch(() => on && setGhInfo({ connected: false, reason: 'offline' }));
@@ -249,6 +265,55 @@ export default function App() {
 
   // Persist the connected repo choice
   useEffect(() => { if (gh) store.set(GH_KEY, gh); else store.remove(GH_KEY); }, [gh]);
+
+  // Supabase is optional during local development. When configured, the
+  // verified Google user gets one cloud snapshot and local state remains the
+  // fallback if the service is unavailable.
+  const cloudReadyRef = useRef(false);
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let active = true;
+    cloudReadyRef.current = false;
+    setCloudSync('loading');
+    fetch('/api/workspace/sync', { headers: authHeaders() })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        if (!active) return;
+        const payload = result?.snapshot?.payload;
+        if (payload && Array.isArray(payload.sessions)) {
+          setSessions(payload.sessions);
+          setActiveId(payload.sessions.find((s) => s.id === activeIdRef.current)?.id || payload.sessions[0]?.id);
+          if (Array.isArray(payload.projects)) setProjects(payload.projects);
+          if (Array.isArray(payload.tasks)) setTasks(payload.tasks);
+          if (Array.isArray(payload.inbox)) setInbox(payload.inbox);
+          if (Array.isArray(payload.activity)) setActivity(payload.activity);
+          if (Array.isArray(payload.files)) setFiles(payload.files);
+          if (payload.activeProjectId) setActiveProjectId(payload.activeProjectId);
+        }
+        cloudReadyRef.current = true;
+        setCloudSync(result?.snapshot ? 'synced' : 'ready');
+      })
+      .catch(() => {
+        if (!active) return;
+        cloudReadyRef.current = true;
+        setCloudSync('offline');
+      });
+    return () => { active = false; cloudReadyRef.current = false; };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !cloudReadyRef.current) return undefined;
+    const payload = { version: 1, sessions, projects, tasks, inbox, activity, files, activeProjectId };
+    const timer = setTimeout(() => {
+      setCloudSync('saving');
+      fetch('/api/workspace/sync', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ payload }),
+      }).then((response) => setCloudSync(response.ok ? 'synced' : 'offline')).catch(() => setCloudSync('offline'));
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, sessions, projects, tasks, inbox, activity, files, activeProjectId]);
 
   // ---------- Scrolling ----------
   const scrollToBottom = useCallback((smooth = true) => {
@@ -320,28 +385,59 @@ export default function App() {
   }, [projects, isDesktop]);
 
   const addTask = useCallback((status, extra = {}) => {
-    setTasks((prev) => [...prev, {
+    const task = {
       id: uid(),
       title: extra.title || 'New task',
       status: extra.status || status,
       prio: extra.prio || 'normal',
       due: extra.due || null,
       createdAt: Date.now(),
-    }]);
+    };
+    setTasks((prev) => [...prev, task]);
+    setActivity((events) => [{ id: uid(), type: 'task', title: 'Task added', description: task.title, ts: Date.now() }, ...events].slice(0, 40));
   }, []);
+
+  const updateTask = useCallback((id, patch) => {
+    const current = tasks.find((task) => task.id === id);
+    if (!current) return;
+    setActivity((events) => [{ id: uid(), type: 'task', title: 'Task updated', description: patch.title || current.title, ts: Date.now() }, ...events].slice(0, 40));
+    setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task)));
+  }, [tasks]);
 
   // `to` is a column id ('progress'|'todo'|'upcoming') or 'done' / 'delete'.
   const moveTask = useCallback((drag, to) => {
     if (!drag || !drag.id) return;
-    setTasks((prev) => {
-      if (to === 'delete') return prev.filter((t) => t.id !== drag.id);
-      return prev.map((t) => (t.id === drag.id ? { ...t, status: to } : t));
-    });
-  }, []);
+    const current = tasks.find((task) => task.id === drag.id);
+    if (!current) return;
+    if (to !== current.status) {
+      setActivity((events) => [{ id: uid(), type: 'task', title: to === 'delete' ? 'Task deleted' : to === 'done' ? 'Task completed' : 'Task moved', description: current.title, ts: Date.now() }, ...events].slice(0, 40));
+    }
+    setTasks((prev) => to === 'delete' ? prev.filter((t) => t.id !== drag.id) : prev.map((t) => (t.id === drag.id ? { ...t, status: to } : t)));
+  }, [tasks]);
 
   const readInbox = useCallback((id) => {
     setInbox((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
   }, []);
+
+  const markAllInboxRead = useCallback(() => {
+    setInbox((prev) => prev.map((n) => ({ ...n, unread: false })));
+  }, []);
+
+  const openInboxChat = useCallback((notification) => {
+    if (!notification) return;
+    readInbox(notification.id);
+    const linkedSession = notification.sessionId && sessionsRef.current.find((s) => s.id === notification.sessionId);
+    if (linkedSession) {
+      setActiveId(linkedSession.id);
+      setView('chat');
+    } else if (notification.projectId) {
+      openProject(notification.projectId);
+      return;
+    } else {
+      setView('chat');
+    }
+    if (!isDesktop) setSidebarOpen(false);
+  }, [isDesktop, openProject, readInbox]);
 
   // Attach a file to the ACTIVE chat. Text files keep their content so the
   // AI can read them; binaries are reference-only.
@@ -417,6 +513,38 @@ export default function App() {
     setToast('Conversation exported');
   }, []);
 
+  const exportWorkspace = useCallback(() => {
+    const payload = { version: 1, exportedAt: Date.now(), sessions, projects, tasks, inbox, activity, files, activeProjectId };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `kenoai-workspace-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+    setToast('Workspace backup exported');
+  }, [sessions, projects, tasks, inbox, activity, files, activeProjectId]);
+
+  const importWorkspace = useCallback(async (event) => {
+    const file = event.target?.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      if (!payload || payload.version !== 1 || !Array.isArray(payload.sessions) || !Array.isArray(payload.tasks)) throw new Error('Invalid KenoAi backup');
+      setSessions(payload.sessions);
+      setActiveId(payload.sessions[0]?.id);
+      if (Array.isArray(payload.projects)) setProjects(payload.projects);
+      if (Array.isArray(payload.tasks)) setTasks(payload.tasks);
+      if (Array.isArray(payload.inbox)) setInbox(payload.inbox);
+      if (Array.isArray(payload.activity)) setActivity(payload.activity);
+      if (Array.isArray(payload.files)) setFiles(payload.files);
+      if (payload.activeProjectId) setActiveProjectId(payload.activeProjectId);
+      setToast('Workspace backup imported');
+    } catch {
+      setToast('Invalid workspace backup');
+    }
+  }, []);
+
   // ---------- Context menu ----------
   const openMenu = useCallback((e, items) => {
     e.preventDefault();
@@ -444,6 +572,8 @@ export default function App() {
       { label: 'New conversation', icon: <IcoPlus />, act: handleNew },
       { label: 'Search chats', icon: <IcoSearch />, act: () => sidebarRef.current?.focusSearch() },
       { label: 'Export current chat', icon: <IcoDownload />, act: () => exportSession(activeIdRef.current) },
+      { label: 'Export workspace backup', icon: <IcoDownload />, act: exportWorkspace },
+      { label: 'Import workspace backup', icon: <IcoUpload />, act: () => workspaceImportRef.current?.click() },
       { label: 'Clear messages in this chat', icon: <IcoBroom />, act: () => setDialog({ type: 'clear' }) },
       { sep: true },
       { label: gh ? 'GitHub connector settings' : 'GitHub connector', icon: <IcoGithub />, act: () => openGithubRef.current() },
@@ -456,16 +586,17 @@ export default function App() {
         window.location.reload();
       }},
     ]);
-  }, [openMenu, handleNew, exportSession, gh]);
+  }, [openMenu, handleNew, exportSession, exportWorkspace, gh]);
 
   const sidebarRef = useRef(null);
+  const workspaceImportRef = useRef(null);
 
   // ---------- GitHub connector actions ----------
   const openGithub = useCallback(async () => {
     setDialog({ type: 'github' });
     if (ghInfo?.connected && ghRepos === null) {
       try {
-        const r = await fetch('/api/github/repos');
+        const r = await fetch('/api/github/repos', { headers: authHeaders() });
         const d = await r.json();
         if (d.ok) setGhRepos(d.repos || []);
         else throw new Error(d.error || 'Could not load repositories');
@@ -484,7 +615,7 @@ export default function App() {
     setGhBusy(true);
     try {
       // Ask the backend to validate the repo before saving the selection.
-      const res = await fetch(`/api/github/repo/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
+      const res = await fetch(`/api/github/repo/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`, { headers: authHeaders() });
       const d = await res.json();
       if (!d.ok) throw new Error(d.error || 'Could not connect');
       setGh({ owner: r.owner, repo: r.name, branch: r.defaultBranch || d.repo?.defaultBranch || 'main' });
@@ -526,7 +657,9 @@ export default function App() {
       setToast('Messages cleared');
     } else if (dialog.type === 'wipe') {
       store.remove('kenoai_sessions_v2');
+      store.remove(WS_KEY.activity);
       store.remove(WS_KEY.files);
+      setActivity([]);
       setFiles([]);
       store.remove('kenoai_sessions');
       const fresh = makeSession();
@@ -662,7 +795,7 @@ export default function App() {
     try {
       const res = await fetch('/api/ai-stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           messages: apiMessages,
           persona: personaRef.current,
@@ -709,6 +842,13 @@ export default function App() {
       }
       if (pending) commit();
       if (raf) cancelAnimationFrame(raf);
+      if (acc.trim()) {
+        const sessionTitle = session.title || 'your conversation';
+        const event = { id: uid(), type: 'ai', title: 'KenoAi finished a response', description: `Your answer is ready in ${sessionTitle}.`, ts: Date.now(), sessionId: sid };
+        const notification = { id: uid(), type: 'ai', title: 'KenoAi finished your answer', preview: `Open ${sessionTitle} to continue the conversation.`, ts: event.ts, unread: true, sessionId: sid };
+        setActivity((prev) => [event, ...prev].slice(0, 40));
+        setInbox((prev) => [notification, ...prev].slice(0, 50));
+      }
     } catch (err) {
       if (err.name === 'AbortError') {
         setToast('Generation stopped');
@@ -847,6 +987,7 @@ export default function App() {
         onFileRemove={removeWsFile}
         onFilePreview={previewWsFile}
       />
+      <input ref={workspaceImportRef} type="file" accept="application/json,.json" onChange={importWorkspace} hidden />
 
       <main className="main">
         <header className="topbar">
@@ -881,6 +1022,10 @@ export default function App() {
             <div className="pill" title={error ? 'Connection error' : 'Connected'}>
               <span className="dot" style={{ background: error ? 'var(--danger)' : '#34d399' }} />
               {error ? 'Offline' : 'KenoAi v2'}
+            </div>
+            <div className="pill" title="Workspace cloud sync status">
+              <span className="dot" style={{ background: cloudSync === 'synced' ? '#34d399' : cloudSync === 'offline' ? 'var(--danger)' : 'var(--accent-warning)' }} />
+              {cloudSync === 'synced' ? 'Cloud synced' : cloudSync === 'offline' ? 'Local mode' : 'Cloud sync'}
             </div>
             {view === 'chat' && (
               <div className="persona" role="tablist" aria-label="Persona">
@@ -918,16 +1063,26 @@ export default function App() {
                 inboxCount={inboxCount}
                 onAsk={askFromHome}
                 onAddTask={() => setView('tasks')}
+                onOpenInbox={() => navigate('inbox')}
+                activity={activity}
                 onMoveTask={moveTask}
                 onOpenProject={openProject}
-                stats={{ throughput: 32 }}
+                stats={{
+                  throughput: completionRate,
+                  activeTasks: taskCount,
+                  completedTasks: completedTaskCount,
+                  overdueTasks: overdueTaskCount,
+                  conversations: sessions.length,
+                  messages: messageCount,
+                  completionRate,
+                }}
               />
             )}
             {view === 'tasks' && (
-              <WorkspaceTasks tasks={tasks} onAddTask={addTask} onMoveTask={moveTask} />
+              <WorkspaceTasks tasks={tasks} onAddTask={addTask} onEditTask={updateTask} onMoveTask={moveTask} />
             )}
             {view === 'inbox' && (
-              <WorkspaceInbox inbox={inbox} onRead={readInbox} />
+              <WorkspaceInbox inbox={inbox} onRead={readInbox} onOpenChat={openInboxChat} onMarkAllRead={markAllInboxRead} sessions={sessions} />
             )}
             {view === 'calendar' && (
               <WorkspaceCalendar tasks={tasks} />
@@ -973,6 +1128,7 @@ export default function App() {
                   streaming={loading && m.id === streamIdRef.current}
                   onCopy={copyText}
                   onSpeak={speak}
+                  onRetry={retry}
                 />
               ))}
             </Suspense>
