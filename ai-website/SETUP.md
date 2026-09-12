@@ -52,6 +52,8 @@ Mode `Agent` tersedia di chat untuk perencanaan dan bantuan coding full-stack. M
 
 Schema juga menyediakan `github_connections` untuk koneksi GitHub per user. Jangan menyimpan access token plaintext. `KENOAI_GITHUB_TOKEN` saat ini adalah shared workspace token dan sebaiknya hanya digunakan untuk staging atau deployment single-owner sampai GitHub OAuth per user dikonfigurasi.
 
+Control Room Agent menyediakan Planner, Reviewer, Patch Preview, Approval, dan Test Runner. Planner/Reviewer membutuhkan `OPENROUTER_API_KEY`; Apply Patch dan Test Runner tetap disabled di production.
+
 ## Menjalankan server
 
 ```bash

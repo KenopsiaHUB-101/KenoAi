@@ -84,6 +84,7 @@ const AGENT_WRITE_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KE
 const AGENT_RUNNER_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KENOAI_AGENT_RUNNER === 'true';
 const AGENT_WORKSPACE_ROOT = path.resolve(process.env.KENOAI_AGENT_WORKSPACE_ROOT || __dirname);
 const patchApprovals = new Map();
+const agentAudit = [];
 const metrics = {
   startedAt: Date.now(),
   requests: 0,
@@ -249,12 +250,69 @@ function redactRunnerOutput(value) {
   return String(value || '').slice(-20_000).replace(/(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|SUPABASE_SERVICE_ROLE_KEY\s*[=:]\s*\S+)/gi, '[REDACTED]');
 }
 
+function recordAgentAudit(req, action, detail = {}) {
+  agentAudit.unshift({ id: crypto.randomBytes(10).toString('hex'), action, requestId: req.requestId, ts: Date.now(), ...detail });
+  if (agentAudit.length > 200) agentAudit.pop();
+}
+
+async function requestAgentJson(messages, model) {
+  if (!OPENROUTER_API_KEY) throw new Error('OpenRouter is not configured.');
+  const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': process.env.PUBLIC_URL || `http://localhost:${PORT}`, 'X-Title': 'KenoAi Agent' },
+    body: JSON.stringify({ model: model && MODELS.some((item) => item.id === model) ? model : DEFAULT_MODEL, messages, temperature: 0.15, max_tokens: Math.min(MAX_TOKENS, 6000), response_format: { type: 'json_object' } }),
+  });
+  if (!response.ok) throw new Error(`Agent model returned ${response.status}`);
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content || '{}';
+  try { return JSON.parse(content); } catch { throw new Error('Agent model returned invalid JSON.'); }
+}
+
 app.get('/api/agent/tools', requireUser, (req, res) => {
   res.json({ ok: true, tools: AGENT_TOOLS });
 });
 
 app.get('/api/agent/runner', requireUser, (req, res) => {
   res.json({ ok: true, enabled: AGENT_RUNNER_ENABLED, commands: Object.keys(AGENT_RUNNER_COMMANDS), writeEnabled: AGENT_WRITE_ENABLED });
+});
+
+app.get('/api/agent/audit', requireUser, (req, res) => {
+  res.json({ ok: true, entries: agentAudit.slice(0, 50).map(({ id, action, requestId, ts }) => ({ id, action, requestId, ts })) });
+});
+
+app.post('/api/agent/plan', rateLimit, requireUser, async (req, res) => {
+  const goal = String(req.body?.goal || '').trim();
+  if (!goal || goal.length > 20_000) return res.status(400).json({ error: 'A goal between 1 and 20000 characters is required.' });
+  try {
+    const plan = await requestAgentJson([
+      { role: 'system', content: 'You are a senior full-stack planner. Return JSON only with keys: summary, assumptions[], steps[{id,title,description,files[],risk}], tests[], rollback[], openQuestions[]. Do not claim files were changed.' },
+      { role: 'user', content: goal },
+    ], req.body?.model);
+    metrics.agentRequests++;
+    recordAgentAudit(req, 'plan', { goalChars: goal.length });
+    res.json({ ok: true, plan, requestId: req.requestId });
+  } catch (error) {
+    metrics.aiFailures++;
+    res.status(502).json({ error: error.message || 'Planner failed.' });
+  }
+});
+
+app.post('/api/agent/review', rateLimit, requireUser, async (req, res) => {
+  const patch = typeof req.body?.patch === 'string' ? req.body.patch : '';
+  if (!patch || patch.length > 500_000) return res.status(400).json({ error: 'A patch between 1 and 500000 characters is required.' });
+  try {
+    const paths = safePatchPaths(patch);
+    const review = await requestAgentJson([
+      { role: 'system', content: 'You are a strict senior code reviewer. Return JSON only with keys: verdict, summary, findings[{severity,file,line,issue,fix}], tests[], risks[]. Severity must be one of blocker, high, medium, low, none. Review only the supplied diff and do not claim tests were run.' },
+      { role: 'user', content: patch.slice(0, 500_000) },
+    ], req.body?.model);
+    metrics.agentRequests++;
+    recordAgentAudit(req, 'review', { files: paths });
+    res.json({ ok: true, review, requestId: req.requestId });
+  } catch (error) {
+    metrics.aiFailures++;
+    res.status(400).json({ error: error.message || 'Review failed.' });
+  }
 });
 
 app.post('/api/agent/patch/preview', rateLimit, requireUser, (req, res) => {
@@ -265,6 +323,7 @@ app.post('/api/agent/patch/preview', rateLimit, requireUser, (req, res) => {
     execFileSync('git', ['apply', '--check', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
     const approvalId = crypto.randomBytes(18).toString('hex');
     patchApprovals.set(approvalId, { patch, paths, expiresAt: Date.now() + 10 * 60_000 });
+    recordAgentAudit(req, 'patch_preview', { files: paths });
     res.json({ ok: true, approvalId, summary: patchSummary(patch, paths), expiresInSec: 600, writeEnabled: AGENT_WRITE_ENABLED });
   } catch (error) {
     res.status(400).json({ error: `Patch rejected: ${String(error.stderr || error.message).slice(0, 500)}` });
@@ -282,6 +341,7 @@ app.post('/api/agent/patch/approve', rateLimit, requireUser, (req, res) => {
   try {
     execFileSync('git', ['apply', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: approval.patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10_000 });
     patchApprovals.delete(approvalId);
+    recordAgentAudit(req, 'patch_apply', { files: approval.paths });
     res.json({ ok: true, summary: patchSummary(approval.patch, approval.paths), requestId: req.requestId });
   } catch (error) {
     res.status(409).json({ error: `Patch was not applied: ${String(error.stderr || error.message).slice(0, 500)}` });
@@ -295,6 +355,7 @@ app.post('/api/agent/test', rateLimit, requireUser, (req, res) => {
   if (!command) return res.status(400).json({ error: 'Unknown test command.', commands: Object.keys(AGENT_RUNNER_COMMANDS) });
   try {
     const output = execFileSync(command[0], command[1], { cwd: AGENT_WORKSPACE_ROOT, encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    recordAgentAudit(req, `test_${name}`);
     res.json({ ok: true, name, output: redactRunnerOutput(output), requestId: req.requestId });
   } catch (error) {
     res.status(422).json({ ok: false, name, output: redactRunnerOutput(`${error.stdout || ''}\n${error.stderr || error.message || ''}`), requestId: req.requestId });

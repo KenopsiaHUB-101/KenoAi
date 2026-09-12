@@ -158,6 +158,9 @@ export default function App() {
   const [dialog, setDialog] = useState(null); // {type, id?, title?}
   const [agentPatch, setAgentPatch] = useState('');
   const [agentPreview, setAgentPreview] = useState(null);
+  const [agentGoal, setAgentGoal] = useState('');
+  const [agentPlan, setAgentPlan] = useState(null);
+  const [agentReview, setAgentReview] = useState(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [menu, setMenu] = useState(null);    // {x, y, items}
   const [image, setImage] = useState(null);  // {dataUrl, name}
@@ -749,6 +752,36 @@ export default function App() {
       setAgentBusy(false);
     }
   }, [agentPatch, agentBusy]);
+
+  const planAgentGoal = useCallback(async () => {
+    if (!agentGoal.trim() || agentBusy) return;
+    setAgentBusy(true);
+    try {
+      const response = await fetch('/api/agent/plan', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ goal: agentGoal, model }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Planner failed');
+      setAgentPlan(data.plan);
+    } catch (error) {
+      setAgentPlan({ error: error.message });
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentGoal, agentBusy, model]);
+
+  const reviewAgentPatch = useCallback(async () => {
+    if (!agentPatch.trim() || agentBusy) return;
+    setAgentBusy(true);
+    try {
+      const response = await fetch('/api/agent/review', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ patch: agentPatch, model }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Review failed');
+      setAgentReview(data.review);
+    } catch (error) {
+      setAgentReview({ error: error.message });
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentPatch, agentBusy, model]);
 
   const approveAgentPatch = useCallback(async () => {
     if (!agentPreview?.approvalId || agentBusy) return;
@@ -1369,11 +1402,18 @@ export default function App() {
               <div className="agent-actions">
                 <button type="button" className="btn-ghost" onClick={openAgentPlanner}><IcoSpark /> Start planner in chat</button>
               </div>
+              <label className="agent-label" htmlFor="agent-goal">Planner goal</label>
+              <textarea id="agent-goal" className="agent-goal-input" value={agentGoal} onChange={(e) => setAgentGoal(e.target.value)} placeholder="Describe the feature, bug, or full-stack change you want to solve." />
+              {agentPlan?.error && <p className="agent-error">{agentPlan.error}</p>}
+              {agentPlan && !agentPlan.error && <div className="agent-plan"><b>{agentPlan.summary}</b><strong>Implementation steps</strong>{(agentPlan.steps || []).map((step) => <div key={step.id} className="agent-plan-step"><span>{step.id}</span><div><b>{step.title}</b><small>{step.description}</small></div></div>)}<strong>Tests</strong><ul>{(agentPlan.tests || []).map((test) => <li key={test}>{test}</li>)}</ul></div>}
+              <div className="row"><button type="button" className="btn-ghost" onClick={planAgentGoal} disabled={agentBusy || !agentGoal.trim()}>{agentBusy ? 'Planning…' : 'Create plan'}</button></div>
               <label className="agent-label" htmlFor="agent-patch">Paste a unified diff for preview</label>
               <textarea id="agent-patch" className="agent-patch-input" value={agentPatch} onChange={(e) => { setAgentPatch(e.target.value); setAgentPreview(null); }} placeholder="--- a/src/example.js\n+++ b/src/example.js\n@@ ..." />
               {agentPreview?.error && <p className="agent-error">{agentPreview.error}</p>}
               {agentPreview && !agentPreview.error && <div className="agent-preview"><div><b>{agentPreview.applied ? 'Patch applied' : 'Patch preview ready'}</b><span>{agentPreview.summary?.files?.length || 0} files · +{agentPreview.summary?.additions || 0} / -{agentPreview.summary?.deletions || 0}</span></div><code>{agentPreview.summary?.files?.join('\n')}</code></div>}
-              <div className="row"><button className="btn-ghost" onClick={closeDialog}>Close</button><button className="btn-ghost" onClick={previewAgentPatch} disabled={agentBusy || !agentPatch.trim()}>{agentBusy ? 'Checking…' : 'Preview patch'}</button>{agentPreview?.approvalId && !agentPreview.applied && <button className="btn-danger" onClick={approveAgentPatch} disabled={agentBusy}>Approve apply</button>}</div>
+              {agentReview?.error && <p className="agent-error">{agentReview.error}</p>}
+              {agentReview && !agentReview.error && <div className="agent-review"><b>Review: {agentReview.verdict}</b><p>{agentReview.summary}</p>{(agentReview.findings || []).map((finding, index) => <div key={`${finding.file}-${index}`} className={`agent-finding ${finding.severity}`}><strong>{finding.severity}</strong><span>{finding.file || 'Patch'}{finding.line ? `:${finding.line}` : ''}</span><p>{finding.issue}</p></div>)}</div>}
+              <div className="row"><button className="btn-ghost" onClick={closeDialog}>Close</button><button className="btn-ghost" onClick={reviewAgentPatch} disabled={agentBusy || !agentPatch.trim()}>{agentBusy ? 'Reviewing…' : 'Review patch'}</button><button className="btn-ghost" onClick={previewAgentPatch} disabled={agentBusy || !agentPatch.trim()}>{agentBusy ? 'Checking…' : 'Preview patch'}</button>{agentPreview?.approvalId && !agentPreview.applied && <button className="btn-danger" onClick={approveAgentPatch} disabled={agentBusy}>Approve apply</button>}</div>
             </div>
           ) : dialog.type === 'github' ? (
             <div className="modal gh-modal" role="dialog" aria-label="GitHub connector">

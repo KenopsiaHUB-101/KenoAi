@@ -58,6 +58,20 @@ try {
   });
   assert.equal(patchApply.status, 403);
 
+  const emptyPlan = await fetch(`${base}/api/agent/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal: '' }),
+  });
+  assert.equal(emptyPlan.status, 400);
+
+  const unsafeReview = await fetch(`${base}/api/agent/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patch: '+++ b/.env\n' }),
+  });
+  assert.equal(unsafeReview.status, 400);
+
   const invalidRole = await fetch(`${base}/api/ai-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
