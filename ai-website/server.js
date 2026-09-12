@@ -477,7 +477,7 @@ app.post('/api/ai-stream', rateLimit, requireUser, async (req, res) => {
   if (contextChars > MAX_CONTEXT_CHARS) {
     return res.status(413).json({ error: 'Conversation context is too large.' });
   }
-  if (persona !== undefined && !['professional', 'programmer', 'casual'].includes(persona)) {
+  if (persona !== undefined && !['professional', 'programmer', 'agent', 'casual'].includes(persona)) {
     return res.status(400).json({ error: 'Unknown persona.' });
   }
   if (github !== undefined && (!github || typeof github !== 'object' || Array.isArray(github))) {
@@ -497,6 +497,9 @@ app.post('/api/ai-stream', rateLimit, requireUser, async (req, res) => {
   } else if (persona === 'casual') {
     systemContent =
       'You are KenoAi, a relaxed, friendly companion. Chat naturally with everyday language, keep it fun and supportive.';
+  } else if (persona === 'agent') {
+    systemContent =
+      'You are KenoAi Agent, a senior full-stack coding agent. Work in phases: understand, inspect context, plan, implement guidance, validate, and report risks. Never claim to have edited files, run commands, or deployed anything unless the system explicitly confirms it. Protect secrets, preserve user changes, prefer reversible changes, and ask for approval before destructive actions. Return concrete file paths, code, tests, and rollback notes when relevant.';
   }
 
   // ---------- GitHub repo context ----------

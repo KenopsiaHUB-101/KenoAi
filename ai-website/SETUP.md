@@ -48,6 +48,8 @@ GOOGLE_CLIENT_ID=your_google_oauth_client_id
 
 Saat Supabase aktif, server memverifikasi Google credential, membuat mapping user di `app_users`, dan menyimpan snapshot workspace pada `workspace_snapshots`. Saat Supabase tidak tersedia, aplikasi tetap memakai local mode.
 
+Mode `Agent` tersedia di chat untuk perencanaan dan bantuan coding full-stack. Mode ini belum diberi akses shell langsung; tindakan file/deployment tetap harus dilakukan dengan approval dan validasi oleh operator.
+
 Schema juga menyediakan `github_connections` untuk koneksi GitHub per user. Jangan menyimpan access token plaintext. `KENOAI_GITHUB_TOKEN` saat ini adalah shared workspace token dan sebaiknya hanya digunakan untuk staging atau deployment single-owner sampai GitHub OAuth per user dikonfigurasi.
 
 ## Menjalankan server
