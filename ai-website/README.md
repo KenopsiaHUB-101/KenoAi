@@ -7,6 +7,7 @@ KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, fil
 - Landing page responsif dengan Google OAuth.
 - Chat SSE streaming dengan persona Professional, Developer, dan Casual.
 - Agent mode untuk perencanaan coding full-stack yang aman, terstruktur, dan sadar konteks workspace/GitHub.
+- Read-only Agent Tool API dengan allowlist GitHub dan tanpa shell execution.
 - Fallback otomatis ke model gratis saat provider mengembalikan 429 atau 503.
 - Riwayat percakapan, pin, rename, export Markdown, retry, dan voice input.
 - Workspace Home dengan statistik berbasis data, quick actions, dan Recent Activity.
@@ -96,6 +97,7 @@ Endpoint penting:
 - `GET /api/health` untuk status server.
 - `GET /api/models` untuk katalog model.
 - `POST /api/ai-stream` untuk SSE chat streaming.
+- `GET /api/agent/tools` dan `POST /api/agent/tool` untuk tool agent read-only.
 - `/api/github/*` untuk connector GitHub.
 
 ## Keamanan dan batasan
@@ -120,6 +122,8 @@ Endpoint penting:
 Server memverifikasi credential Google melalui Google tokeninfo, memetakan `google_sub` ke `app_users`, lalu menyimpan satu snapshot workspace per user. Browser tidak pernah menerima service-role key.
 
 GitHub OAuth per-user membutuhkan OAuth App terpisah di GitHub. Callback, encryption key, dan token storage belum boleh diaktifkan dengan placeholder; gunakan shared token hanya untuk staging atau single-owner deployment sampai OAuth App tersedia.
+
+Agent tools saat ini read-only. Shell execution, file writes, patch application, test runner, dan pull request creation harus melewati sandbox, approval UI, audit log, dan allowlist sebelum diaktifkan.
 
 ## Validasi perubahan
 

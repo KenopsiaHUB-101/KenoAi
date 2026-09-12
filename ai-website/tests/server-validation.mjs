@@ -29,6 +29,17 @@ try {
   assert.equal(metrics.status, 200);
   assert.equal((await metrics.json()).ok, true);
 
+  const tools = await fetch(`${base}/api/agent/tools`);
+  assert.equal(tools.status, 200);
+  assert.ok((await tools.json()).tools.some((tool) => tool.name === 'github_file'));
+
+  const unknownTool = await fetch(`${base}/api/agent/tool`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool: 'shell_exec', args: { command: 'pwd' } }),
+  });
+  assert.equal(unknownTool.status, 400);
+
   const invalidRole = await fetch(`${base}/api/ai-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

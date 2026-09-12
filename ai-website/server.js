@@ -86,6 +86,7 @@ const metrics = {
   aiRequests: 0,
   aiFailures: 0,
   githubRequests: 0,
+  agentRequests: 0,
 };
 
 // ---------- Middleware ----------
@@ -193,7 +194,7 @@ app.use(express.static(DIST, { maxAge: '1y', index: false, immutable: true }));
 
 // ---------- API: health ----------
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), cloudAuth: CLOUD_AUTH_ENABLED, supabase: CLOUD_AUTH_ENABLED ? 'configured' : 'not-configured', uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000), metrics: { requests: metrics.requests, responses: metrics.responses, errors: metrics.errors, aiRequests: metrics.aiRequests, aiFailures: metrics.aiFailures, githubRequests: metrics.githubRequests }, ts: Date.now() });
+  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), cloudAuth: CLOUD_AUTH_ENABLED, supabase: CLOUD_AUTH_ENABLED ? 'configured' : 'not-configured', uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000), metrics: { requests: metrics.requests, responses: metrics.responses, errors: metrics.errors, aiRequests: metrics.aiRequests, aiFailures: metrics.aiFailures, githubRequests: metrics.githubRequests, agentRequests: metrics.agentRequests }, ts: Date.now() });
 });
 
 app.get('/api/metrics', (req, res) => {
@@ -203,6 +204,17 @@ app.get('/api/metrics', (req, res) => {
 // ---------- API: model list (for a future UI picker) ----------
 app.get('/api/models', (req, res) => {
   res.json({ ok: true, default: DEFAULT_MODEL, models: MODELS });
+});
+
+const AGENT_TOOLS = [
+  { name: 'github_status', description: 'Check whether the server GitHub connector is available.', mutating: false },
+  { name: 'github_repos', description: 'List repositories available to the configured GitHub connector.', mutating: false },
+  { name: 'github_tree', description: 'Read a repository file tree, capped by the server limit.', mutating: false },
+  { name: 'github_file', description: 'Read one repository file with a bounded response.', mutating: false },
+];
+
+app.get('/api/agent/tools', requireUser, (req, res) => {
+  res.json({ ok: true, tools: AGENT_TOOLS });
 });
 
 app.get('/api/workspace/sync', requireUser, async (req, res) => {
@@ -412,6 +424,45 @@ app.get('/api/github/file', rateLimit, async (req, res) => {
     res.json({ ok: true, ...data, content: data.content.slice(0, 120_000) });
   } catch (err) {
     ghHandle(err, res);
+  }
+});
+
+// Read-only agent tool gateway. Write tools are intentionally absent until a
+// sandbox, approval UI, and audit trail are available.
+app.post('/api/agent/tool', rateLimit, requireUser, async (req, res) => {
+  metrics.agentRequests++;
+  const tool = String(req.body?.tool || '');
+  const args = req.body?.args && typeof req.body.args === 'object' ? req.body.args : {};
+  if (!AGENT_TOOLS.some((item) => item.name === tool)) {
+    return res.status(400).json({ error: 'Unknown or unavailable agent tool.', tools: AGENT_TOOLS.map((item) => item.name) });
+  }
+  try {
+    if (tool === 'github_status') {
+      return res.json({ ok: true, result: GITHUB_TOKEN ? { connected: true, mode: 'workspace-token' } : { connected: false, reason: 'no-token' } });
+    }
+    if (!GITHUB_TOKEN) return res.status(503).json({ error: 'GitHub connector is not configured.' });
+    const owner = String(args.owner || '').replace(/[^\w.\-]/g, '');
+    const repo = String(args.repo || '').replace(/[^\w.\-]/g, '');
+    if (!owner || !repo) return res.status(400).json({ error: 'owner and repo are required.' });
+    if (tool === 'github_repos') {
+      const repos = await ghCached('repos', 300_000, () => ghFetch('/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member'));
+      return res.json({ ok: true, result: repos.map((item) => ({ owner: item.owner.login, name: item.name, fullName: item.full_name, private: item.private, language: item.language || '', defaultBranch: item.default_branch })) });
+    }
+    if (tool === 'github_tree') {
+      const branch = String(args.branch || 'main').replace(/[^\w.\-/]/g, '');
+      const tree = await ghFetch(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+      const files = (tree.tree || []).filter((item) => item.type === 'blob').map((item) => item.path).filter((item) => !/(^|\/)(node_modules|\.git)\//.test(item)).slice(0, 1500);
+      return res.json({ ok: true, result: { branch, truncated: Boolean(tree.truncated), files } });
+    }
+    const filePath = String(args.path || '').trim();
+    if (!filePath || filePath.includes('..')) return res.status(400).json({ error: 'A safe file path is required.' });
+    const file = await ghFetch(`/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath).replace(/%2F/g, '/')}`);
+    if (file.type !== 'file') return res.status(400).json({ error: 'The requested path is not a file.' });
+    const content = Buffer.from(file.content || '', file.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8');
+    return res.json({ ok: true, result: { path: file.path, size: file.size, content: content.slice(0, 120_000), truncated: content.length > 120_000 } });
+  } catch (error) {
+    console.error(`[agent-tool] ${tool} failed:`, error.message);
+    return res.status(error.status || 502).json({ error: 'Agent read-only tool failed.' });
   }
 });
 
