@@ -18,8 +18,16 @@ const base = `http://127.0.0.1:${port}`;
 try {
   const health = await fetch(`${base}/api/health`);
   assert.equal(health.status, 200);
-  assert.equal((await health.json()).ok, true);
+  const healthBody = await health.json();
+  assert.equal(healthBody.ok, true);
+  assert.equal(typeof healthBody.metrics.requests, 'number');
+  assert.equal(typeof healthBody.uptimeSec, 'number');
+  assert.match(health.headers.get('x-request-id') || '', /.+/);
   assert.match(health.headers.get('content-security-policy') || '', /frame-ancestors 'none'/);
+
+  const metrics = await fetch(`${base}/api/metrics`);
+  assert.equal(metrics.status, 200);
+  assert.equal((await metrics.json()).ok, true);
 
   const invalidRole = await fetch(`${base}/api/ai-stream`, {
     method: 'POST',

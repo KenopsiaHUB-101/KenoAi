@@ -14,6 +14,7 @@ KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, fil
 - Calendar, Reports, workspace files, serta GitHub repository connector.
 - Error Boundary untuk recovery ketika komponen React gagal.
 - Supabase cloud snapshot untuk multi-user workflow dan local-first fallback.
+- Fondasi koneksi GitHub per-user di schema Supabase, siap untuk GitHub OAuth.
 - Export/import backup workspace JSON berversi.
 
 ## Struktur penting
@@ -97,6 +98,7 @@ Endpoint penting:
 - Jika Supabase dikonfigurasi, Google credential diverifikasi server-side dan workspace snapshot disimpan per user.
 - Jika Supabase belum dikonfigurasi, aplikasi tetap berjalan dalam local mode menggunakan `localStorage`.
 - `SUPABASE_SERVICE_ROLE_KEY` hanya boleh berada di server dan tidak boleh diawali `VITE_`.
+- Token GitHub global `KENOAI_GITHUB_TOKEN` adalah mode workspace/shared-token; untuk multi-user production gunakan GitHub OAuth per user dan simpan token terenkripsi di `github_connections`.
 - Jangan menyimpan secret di log, source code, `memory.md`, atau output terminal.
 
 ## Supabase multi-user
@@ -108,6 +110,8 @@ Endpoint penting:
 5. Restart server. Endpoint `/api/health` harus menampilkan `cloudAuth: true`.
 
 Server memverifikasi credential Google melalui Google tokeninfo, memetakan `google_sub` ke `app_users`, lalu menyimpan satu snapshot workspace per user. Browser tidak pernah menerima service-role key.
+
+GitHub OAuth per-user membutuhkan OAuth App terpisah di GitHub. Callback, encryption key, dan token storage belum boleh diaktifkan dengan placeholder; gunakan shared token hanya untuk staging atau single-owner deployment sampai OAuth App tersedia.
 
 ## Validasi perubahan
 
