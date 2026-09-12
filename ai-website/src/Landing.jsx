@@ -314,6 +314,24 @@ export default function Landing({ onLoginSuccess }) {
         </div>
       </section>
 
+      {/* ================= AGENT WORKFLOW ================= */}
+      <section className="k-agent-showcase" data-animate aria-label="KenoAi Agent workflow">
+        <div className="k-container k-agent-grid">
+          <div className="k-agent-copy">
+            <span className="k-kicker">KENOAI AGENT</span>
+            <h2>From a rough idea to a reviewed change.</h2>
+            <p>KenoAi Agent turns complex coding work into a visible workflow: understand the request, inspect context, propose a plan, preview the diff, and validate before release.</p>
+            <button type="button" className="k-btn k-btn-primary" onClick={go}><IcoSpark /> Try Agent mode</button>
+          </div>
+          <div className="k-agent-flow" aria-label="Agent workflow steps">
+            <div className="k-agent-step"><span>01</span><div><b>Plan</b><small>Goals, assumptions, affected files</small></div><IcoBrain /></div>
+            <div className="k-agent-step"><span>02</span><div><b>Inspect</b><small>Workspace files and GitHub context</small></div><IcoGithub /></div>
+            <div className="k-agent-step active"><span>03</span><div><b>Review</b><small>Patch preview, risks, and approval</small></div><IcoCheck /></div>
+            <div className="k-agent-step"><span>04</span><div><b>Validate</b><small>Tests before the change ships</small></div><IcoBolt /></div>
+          </div>
+        </div>
+      </section>
+
       {/* ================= QUICK STARTS ================= */}
       <section className="k-quick" data-animate>
         <div className="k-container">

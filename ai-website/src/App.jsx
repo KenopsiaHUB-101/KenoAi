@@ -156,6 +156,9 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [dialog, setDialog] = useState(null); // {type, id?, title?}
+  const [agentPatch, setAgentPatch] = useState('');
+  const [agentPreview, setAgentPreview] = useState(null);
+  const [agentBusy, setAgentBusy] = useState(false);
   const [menu, setMenu] = useState(null);    // {x, y, items}
   const [image, setImage] = useState(null);  // {dataUrl, name}
   // GitHub connector: server-side token status + the connected repo (persisted)
@@ -599,6 +602,7 @@ export default function App() {
     openMenu(e, [
       { label: 'Workspace home', icon: <IcoHome />, act: () => setView('home') },
       { label: 'New conversation', icon: <IcoPlus />, act: handleNew },
+      { label: 'Agent control room', icon: <IcoSpark />, act: () => setDialog({ type: 'agent' }) },
       { label: 'Search chats', icon: <IcoSearch />, act: () => sidebarRef.current?.focusSearch() },
       { label: 'Export current chat', icon: <IcoDownload />, act: () => exportSession(activeIdRef.current) },
       { label: 'Export workspace backup', icon: <IcoDownload />, act: exportWorkspace },
@@ -718,6 +722,53 @@ export default function App() {
 
   // ---------- Dialog actions ----------
   const closeDialog = () => setDialog(null);
+
+  const openAgentPlanner = useCallback(() => {
+    setView('chat');
+    setPersona('agent');
+    composerRef.current?.set('Act as a senior full-stack planner. Inspect the current workspace and GitHub context, then produce: goals, assumptions, affected files, implementation steps, risks, tests, and rollback plan. Do not apply changes yet.');
+    composerRef.current?.focus();
+    setDialog(null);
+  }, []);
+
+  const previewAgentPatch = useCallback(async () => {
+    if (!agentPatch.trim() || agentBusy) return;
+    setAgentBusy(true);
+    try {
+      const response = await fetch('/api/agent/patch/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ patch: agentPatch }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Patch preview failed');
+      setAgentPreview(data);
+    } catch (error) {
+      setAgentPreview({ error: error.message });
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentPatch, agentBusy]);
+
+  const approveAgentPatch = useCallback(async () => {
+    if (!agentPreview?.approvalId || agentBusy) return;
+    setAgentBusy(true);
+    try {
+      const response = await fetch('/api/agent/patch/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ approvalId: agentPreview.approvalId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Patch approval failed');
+      setToast('Patch applied in the approved environment');
+      setAgentPreview({ ...data, applied: true });
+    } catch (error) {
+      setAgentPreview((current) => ({ ...(current || {}), error: error.message }));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentPreview, agentBusy]);
 
   const runDialog = useCallback(() => {
     if (!dialog) return;
@@ -1311,6 +1362,18 @@ export default function App() {
                   <button className="btn-danger" onClick={() => injectWsFile(dialog.file)}>Send to chat</button>
                 )}
               </div>
+            </div>
+          ) : dialog.type === 'agent' ? (
+            <div className="modal agent-modal" role="dialog" aria-label="Agent control room">
+              <div className="agent-modal-head"><span className="agent-mark"><IcoSpark /></span><div><h3>Agent control room</h3><p className="sub">Plan safely, preview changes, then approve only in staging.</p></div></div>
+              <div className="agent-actions">
+                <button type="button" className="btn-ghost" onClick={openAgentPlanner}><IcoSpark /> Start planner in chat</button>
+              </div>
+              <label className="agent-label" htmlFor="agent-patch">Paste a unified diff for preview</label>
+              <textarea id="agent-patch" className="agent-patch-input" value={agentPatch} onChange={(e) => { setAgentPatch(e.target.value); setAgentPreview(null); }} placeholder="--- a/src/example.js\n+++ b/src/example.js\n@@ ..." />
+              {agentPreview?.error && <p className="agent-error">{agentPreview.error}</p>}
+              {agentPreview && !agentPreview.error && <div className="agent-preview"><div><b>{agentPreview.applied ? 'Patch applied' : 'Patch preview ready'}</b><span>{agentPreview.summary?.files?.length || 0} files · +{agentPreview.summary?.additions || 0} / -{agentPreview.summary?.deletions || 0}</span></div><code>{agentPreview.summary?.files?.join('\n')}</code></div>}
+              <div className="row"><button className="btn-ghost" onClick={closeDialog}>Close</button><button className="btn-ghost" onClick={previewAgentPatch} disabled={agentBusy || !agentPatch.trim()}>{agentBusy ? 'Checking…' : 'Preview patch'}</button>{agentPreview?.approvalId && !agentPreview.applied && <button className="btn-danger" onClick={approveAgentPatch} disabled={agentBusy}>Approve apply</button>}</div>
             </div>
           ) : dialog.type === 'github' ? (
             <div className="modal gh-modal" role="dialog" aria-label="GitHub connector">

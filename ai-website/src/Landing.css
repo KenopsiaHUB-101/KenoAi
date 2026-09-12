@@ -168,6 +168,20 @@ html.k-landing-on { scroll-behavior: smooth; }
 .k-proof-item b { color: var(--k-ink); font-size: 12.5px; }
 .k-proof-item small { color: var(--k-muted); font-size: 11.5px; }
 
+/* ---------- agent showcase ---------- */
+.k-agent-showcase { padding: 0 0 90px; }
+.k-agent-grid { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 58px; align-items: center; }
+.k-agent-copy h2 { max-width: 520px; margin: 0 0 16px; color: var(--k-ink); font-size: clamp(28px, 3.6vw, 44px); line-height: 1.1; letter-spacing: -0.02em; }
+.k-agent-copy p { max-width: 520px; margin: 0 0 24px; color: var(--k-ink-2); font-size: 16px; line-height: 1.65; }
+.k-agent-flow { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--k-line); border-radius: 20px; background: rgba(255, 255, 255, 0.75); box-shadow: var(--k-shadow); }
+.k-agent-step { display: flex; align-items: center; gap: 13px; padding: 14px; border: 1px solid transparent; border-radius: 13px; color: var(--k-ink-2); }
+.k-agent-step.active { border-color: #d9cff5; background: var(--k-purple-soft); color: var(--k-purple-deep); box-shadow: 0 8px 20px rgba(91, 59, 224, 0.08); }
+.k-agent-step > span { color: var(--k-muted); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
+.k-agent-step > div { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.k-agent-step b { color: var(--k-ink); font-size: 14px; }
+.k-agent-step small { color: var(--k-muted); font-size: 12px; }
+.k-agent-step > svg { width: 19px; height: 19px; color: var(--k-purple); }
+
 /* ---------- hero mockup (dashboard in reference style) ---------- */
 .k-hero-visual { position: relative; }
 .k-hero-mock { position: relative; z-index: 2; animation: kFloat 7s ease-in-out infinite; }
@@ -523,6 +537,7 @@ html.k-landing-on { scroll-behavior: smooth; }
   .k-float-a { left: -10px; } .k-float-b { right: -6px; }
   .k-proof-in { grid-template-columns: repeat(3, 1fr); }
   .k-proof-lead { grid-column: 1 / -1; }
+  .k-agent-grid { grid-template-columns: 1fr; gap: 28px; }
   .k-quick-grid, .k-feat-grid, .k-teams-grid { grid-template-columns: repeat(2, 1fr); }
   .k-steps { grid-template-columns: repeat(2, 1fr); }
   .k-stats-in { grid-template-columns: repeat(2, 1fr); row-gap: 28px; }
@@ -545,6 +560,7 @@ html.k-landing-on { scroll-behavior: smooth; }
   .k-proof { padding-bottom: 54px; }
   .k-proof-in { grid-template-columns: 1fr; gap: 16px; padding: 18px; }
   .k-proof-lead { grid-column: auto; }
+  .k-agent-showcase { padding-bottom: 64px; }
   .k-btn-lg { width: 100%; }
   .mk { border-radius: 16px; }
   .mk-body { grid-template-columns: 1fr; min-height: 0; }

@@ -96,6 +96,20 @@
 .gh-file-list svg { width: 13px; height: 13px; flex: none; }
 .gh-file-preview { margin-top: 10px; }
 .gh-file-preview pre { max-height: 220px; overflow: auto; margin: 0; padding: 10px; border-radius: 8px; color: var(--text-secondary); background: var(--bg-primary); font: 0.68rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.agent-modal { width: min(720px, calc(100vw - 28px)); }
+.agent-modal-head { display: flex; align-items: flex-start; gap: 11px; }
+.agent-modal-head h3 { margin: 0; }
+.agent-mark { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 10px; color: #fff; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); }
+.agent-mark svg { width: 17px; height: 17px; }
+.agent-actions { display: flex; gap: 8px; margin: 16px 0; }
+.agent-label { display: block; margin-bottom: 7px; color: var(--text-secondary); font-size: 0.76rem; font-weight: 700; }
+.agent-patch-input { width: 100%; min-height: 190px; box-sizing: border-box; resize: vertical; border: 1px solid var(--border-color); border-radius: 10px; padding: 11px; color: var(--text-secondary); background: var(--bg-primary); font: 0.72rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; outline: none; }
+.agent-patch-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.14); }
+.agent-preview { margin-top: 12px; border: 1px solid var(--border-color); border-radius: 10px; padding: 11px; background: var(--bg-secondary); }
+.agent-preview > div { display: flex; justify-content: space-between; gap: 10px; color: var(--text-primary); font-size: 0.78rem; }
+.agent-preview > div span { color: var(--text-tertiary); font-size: 0.7rem; }
+.agent-preview code { display: block; margin-top: 8px; max-height: 90px; overflow: auto; color: var(--text-tertiary); white-space: pre-wrap; }
+.agent-error { margin: 10px 0 0; color: var(--danger); font-size: 0.76rem; }
 
 /* ========================================
    Animations
