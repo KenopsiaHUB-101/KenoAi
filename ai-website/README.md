@@ -70,6 +70,13 @@ cp /workspaces/KenoAi/ai-website/index.html /workspaces/KenoAi/ai-website/packag
 npm run build
 ```
 
+Atau jalankan script resmi dari folder repo setelah `/workspace/build-temp` siap:
+
+```bash
+cd /workspaces/KenoAi/ai-website
+npm run build:sandbox
+```
+
 Setelah build berhasil, salin `dist/` hasil build ke `ai-website/dist/`. Jangan mengedit `dist/` secara manual.
 
 ## Menjalankan server
