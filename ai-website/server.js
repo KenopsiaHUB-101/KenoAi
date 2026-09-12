@@ -78,17 +78,36 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
 const CLOUD_AUTH_ENABLED = process.env.NODE_ENV !== 'test' && Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const metrics = {
+  startedAt: Date.now(),
+  requests: 0,
+  responses: 0,
+  errors: 0,
+  aiRequests: 0,
+  aiFailures: 0,
+  githubRequests: 0,
+};
 
 // ---------- Middleware ----------
 app.disable('x-powered-by');
 app.use(express.json({ limit: `${MAX_BODY_MB}mb` }));
 
 app.use((req, res, next) => {
+  req.requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const startedAt = Date.now();
+  metrics.requests++;
+  res.setHeader('X-Request-Id', req.requestId);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=()');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://openrouter.ai https://api.github.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  res.on('finish', () => {
+    metrics.responses++;
+    if (res.statusCode >= 500) metrics.errors++;
+    const durationMs = Date.now() - startedAt;
+    if (process.env.NODE_ENV !== 'test') console.info(`[request] ${req.requestId} ${req.method} ${req.path} ${res.statusCode} ${durationMs}ms`);
+  });
   next();
 });
 
@@ -174,7 +193,11 @@ app.use(express.static(DIST, { maxAge: '1y', index: false, immutable: true }));
 
 // ---------- API: health ----------
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), cloudAuth: CLOUD_AUTH_ENABLED, supabase: CLOUD_AUTH_ENABLED ? 'configured' : 'not-configured', ts: Date.now() });
+  res.json({ ok: true, model: DEFAULT_MODEL, hasKey: Boolean(OPENROUTER_API_KEY), cloudAuth: CLOUD_AUTH_ENABLED, supabase: CLOUD_AUTH_ENABLED ? 'configured' : 'not-configured', uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000), metrics: { requests: metrics.requests, responses: metrics.responses, errors: metrics.errors, aiRequests: metrics.aiRequests, aiFailures: metrics.aiFailures, githubRequests: metrics.githubRequests }, ts: Date.now() });
+});
+
+app.get('/api/metrics', (req, res) => {
+  res.json({ ok: true, uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000), ...metrics, ts: Date.now() });
 });
 
 // ---------- API: model list (for a future UI picker) ----------
@@ -273,6 +296,7 @@ function ghHandle(err, res) {
 }
 
 app.use('/api/github', requireUser);
+app.use('/api/github', (req, res, next) => { metrics.githubRequests++; next(); });
 
 // GET /api/github/status -> token valid? + connected account info
 app.get('/api/github/status', rateLimit, async (req, res) => {
@@ -424,6 +448,7 @@ function freeFallbackChain(requestedModel) {
 const FALLBACK_STATUSES = new Set([429, 503]);
 
 app.post('/api/ai-stream', rateLimit, requireUser, async (req, res) => {
+  metrics.aiRequests++;
   const { messages, persona, model, github } = req.body || {};
 
   if (!OPENROUTER_API_KEY) {
@@ -622,6 +647,7 @@ app.post('/api/ai-stream', rateLimit, requireUser, async (req, res) => {
     }
     res.end();
   } catch (err) {
+      metrics.aiFailures++;
     if (upstream.signal.aborted || req.destroyed) {
       try { res.end(); } catch {}
     } else {
