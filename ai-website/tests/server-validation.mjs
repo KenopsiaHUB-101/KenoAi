@@ -40,6 +40,24 @@ try {
   });
   assert.equal(unknownTool.status, 400);
 
+  const runner = await fetch(`${base}/api/agent/runner`);
+  assert.equal(runner.status, 200);
+  assert.equal((await runner.json()).enabled, false);
+
+  const patchPreview = await fetch(`${base}/api/agent/patch/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patch: '--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n-secret\n+changed\n' }),
+  });
+  assert.equal(patchPreview.status, 400);
+
+  const patchApply = await fetch(`${base}/api/agent/patch/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approvalId: 'not-valid' }),
+  });
+  assert.equal(patchApply.status, 403);
+
   const invalidRole = await fetch(`${base}/api/ai-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

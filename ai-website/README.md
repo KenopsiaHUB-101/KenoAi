@@ -8,6 +8,8 @@ KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, fil
 - Chat SSE streaming dengan persona Professional, Developer, dan Casual.
 - Agent mode untuk perencanaan coding full-stack yang aman, terstruktur, dan sadar konteks workspace/GitHub.
 - Read-only Agent Tool API dengan allowlist GitHub dan tanpa shell execution.
+- Patch Agent dengan preview, approval token, path guard, dan apply disabled by default.
+- Test Runner Agent dengan command allowlist dan output redaction.
 - Model picker dari katalog server dengan fallback gratis saat model sibuk.
 - Fallback otomatis ke model gratis saat provider mengembalikan 429 atau 503.
 - Riwayat percakapan, pin, rename, export Markdown, retry, dan voice input.
@@ -99,6 +101,9 @@ Endpoint penting:
 - `GET /api/models` untuk katalog model.
 - `POST /api/ai-stream` untuk SSE chat streaming.
 - `GET /api/agent/tools` dan `POST /api/agent/tool` untuk tool agent read-only.
+- `POST /api/agent/patch/preview` untuk validasi dan preview patch.
+- `POST /api/agent/patch/approve` untuk apply patch hanya di staging dengan flag eksplisit.
+- `GET /api/agent/runner` dan `POST /api/agent/test` untuk test runner allowlist staging.
 - `/api/github/*` untuk connector GitHub.
 
 ## Keamanan dan batasan
@@ -125,6 +130,8 @@ Server memverifikasi credential Google melalui Google tokeninfo, memetakan `goog
 GitHub OAuth per-user membutuhkan OAuth App terpisah di GitHub. Callback, encryption key, dan token storage belum boleh diaktifkan dengan placeholder; gunakan shared token hanya untuk staging atau single-owner deployment sampai OAuth App tersedia.
 
 Agent tools saat ini read-only. Shell execution, file writes, patch application, test runner, dan pull request creation harus melewati sandbox, approval UI, audit log, dan allowlist sebelum diaktifkan.
+
+Patch apply dan test runner memakai dua flag staging terpisah: `KENOAI_AGENT_WRITE=true` dan `KENOAI_AGENT_RUNNER=true`. Keduanya sengaja tidak aktif pada production. Workspace root juga dapat dibatasi dengan `KENOAI_AGENT_WORKSPACE_ROOT`.
 
 ## Validasi perubahan
 

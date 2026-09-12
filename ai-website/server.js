@@ -4,6 +4,8 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,6 +80,10 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
 const CLOUD_AUTH_ENABLED = process.env.NODE_ENV !== 'test' && Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const AGENT_WRITE_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KENOAI_AGENT_WRITE === 'true';
+const AGENT_RUNNER_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KENOAI_AGENT_RUNNER === 'true';
+const AGENT_WORKSPACE_ROOT = path.resolve(process.env.KENOAI_AGENT_WORKSPACE_ROOT || __dirname);
+const patchApprovals = new Map();
 const metrics = {
   startedAt: Date.now(),
   requests: 0,
@@ -213,8 +219,86 @@ const AGENT_TOOLS = [
   { name: 'github_file', description: 'Read one repository file with a bounded response.', mutating: false },
 ];
 
+const AGENT_RUNNER_COMMANDS = {
+  test: ['npm', ['test']],
+  syntax: ['node', ['--check', 'server.js']],
+  diff: ['git', ['diff', '--check']],
+};
+
+function safePatchPaths(patch) {
+  const paths = [...String(patch).matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]);
+  if (!paths.length || paths.length > 40) throw new Error('Patch must contain between 1 and 40 files.');
+  for (const filePath of paths) {
+    if (!filePath || filePath.includes('..') || filePath.startsWith('/') || filePath.startsWith('\\') || /(^|\/)(\.env|node_modules|dist|Refrensi)(\/|$)/i.test(filePath)) {
+      throw new Error(`Patch path is not allowed: ${filePath}`);
+    }
+  }
+  return [...new Set(paths)];
+}
+
+function patchSummary(patch, paths) {
+  return {
+    files: paths,
+    additions: String(patch).split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).length,
+    deletions: String(patch).split('\n').filter((line) => line.startsWith('-') && !line.startsWith('---')).length,
+    chars: String(patch).length,
+  };
+}
+
+function redactRunnerOutput(value) {
+  return String(value || '').slice(-20_000).replace(/(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|SUPABASE_SERVICE_ROLE_KEY\s*[=:]\s*\S+)/gi, '[REDACTED]');
+}
+
 app.get('/api/agent/tools', requireUser, (req, res) => {
   res.json({ ok: true, tools: AGENT_TOOLS });
+});
+
+app.get('/api/agent/runner', requireUser, (req, res) => {
+  res.json({ ok: true, enabled: AGENT_RUNNER_ENABLED, commands: Object.keys(AGENT_RUNNER_COMMANDS), writeEnabled: AGENT_WRITE_ENABLED });
+});
+
+app.post('/api/agent/patch/preview', rateLimit, requireUser, (req, res) => {
+  const patch = typeof req.body?.patch === 'string' ? req.body.patch : '';
+  if (!patch || patch.length > 500_000) return res.status(400).json({ error: 'A patch between 1 and 500000 characters is required.' });
+  try {
+    const paths = safePatchPaths(patch);
+    execFileSync('git', ['apply', '--check', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
+    const approvalId = crypto.randomBytes(18).toString('hex');
+    patchApprovals.set(approvalId, { patch, paths, expiresAt: Date.now() + 10 * 60_000 });
+    res.json({ ok: true, approvalId, summary: patchSummary(patch, paths), expiresInSec: 600, writeEnabled: AGENT_WRITE_ENABLED });
+  } catch (error) {
+    res.status(400).json({ error: `Patch rejected: ${String(error.stderr || error.message).slice(0, 500)}` });
+  }
+});
+
+app.post('/api/agent/patch/approve', rateLimit, requireUser, (req, res) => {
+  if (!AGENT_WRITE_ENABLED) return res.status(403).json({ error: 'Patch application is disabled. Enable it only in staging with KENOAI_AGENT_WRITE=true.' });
+  const approvalId = String(req.body?.approvalId || '');
+  const approval = patchApprovals.get(approvalId);
+  if (!approval || approval.expiresAt < Date.now()) {
+    patchApprovals.delete(approvalId);
+    return res.status(400).json({ error: 'Approval is missing or expired.' });
+  }
+  try {
+    execFileSync('git', ['apply', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: approval.patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10_000 });
+    patchApprovals.delete(approvalId);
+    res.json({ ok: true, summary: patchSummary(approval.patch, approval.paths), requestId: req.requestId });
+  } catch (error) {
+    res.status(409).json({ error: `Patch was not applied: ${String(error.stderr || error.message).slice(0, 500)}` });
+  }
+});
+
+app.post('/api/agent/test', rateLimit, requireUser, (req, res) => {
+  if (!AGENT_RUNNER_ENABLED) return res.status(403).json({ error: 'Agent test runner is disabled. Enable it only in staging with KENOAI_AGENT_RUNNER=true.' });
+  const name = String(req.body?.name || '');
+  const command = AGENT_RUNNER_COMMANDS[name];
+  if (!command) return res.status(400).json({ error: 'Unknown test command.', commands: Object.keys(AGENT_RUNNER_COMMANDS) });
+  try {
+    const output = execFileSync(command[0], command[1], { cwd: AGENT_WORKSPACE_ROOT, encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    res.json({ ok: true, name, output: redactRunnerOutput(output), requestId: req.requestId });
+  } catch (error) {
+    res.status(422).json({ ok: false, name, output: redactRunnerOutput(`${error.stdout || ''}\n${error.stderr || error.message || ''}`), requestId: req.requestId });
+  }
 });
 
 app.get('/api/workspace/sync', requireUser, async (req, res) => {
