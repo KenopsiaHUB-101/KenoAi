@@ -72,6 +72,13 @@ try {
   });
   assert.equal(unsafeReview.status, 400);
 
+  const secretPlan = await fetch(`${base}/api/agent/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal: 'Use sk-test-secret-value-12345' }),
+  });
+  assert.equal(secretPlan.status, 400);
+
   const invalidRole = await fetch(`${base}/api/ai-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

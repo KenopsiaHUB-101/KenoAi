@@ -10,6 +10,7 @@ KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, fil
 - Read-only Agent Tool API dengan allowlist GitHub dan tanpa shell execution.
 - Patch Agent dengan preview, approval token, path guard, dan apply disabled by default.
 - Test Runner Agent dengan command allowlist dan output redaction.
+- Secret scanner, write lock, checkpoint rollback, dan context size guard.
 - Model picker dari katalog server dengan fallback gratis saat model sibuk.
 - Fallback otomatis ke model gratis saat provider mengembalikan 429 atau 503.
 - Riwayat percakapan, pin, rename, export Markdown, retry, dan voice input.
@@ -103,6 +104,7 @@ Endpoint penting:
 - `GET /api/agent/tools` dan `POST /api/agent/tool` untuk tool agent read-only.
 - `POST /api/agent/patch/preview` untuk validasi dan preview patch.
 - `POST /api/agent/patch/approve` untuk apply patch hanya di staging dengan flag eksplisit.
+- `POST /api/agent/rollback` untuk rollback checkpoint patch di staging.
 - `POST /api/agent/plan` untuk plan JSON terstruktur.
 - `POST /api/agent/review` untuk review diff dengan severity dan findings.
 - `GET /api/agent/runner` dan `POST /api/agent/test` untuk test runner allowlist staging.
@@ -137,6 +139,8 @@ Agent tools saat ini read-only. Shell execution, file writes, patch application,
 Agent memory dan audit log memiliki schema Supabase `agent_memory` dan `agent_audit_logs`. Isi memory hanya keputusan teknis dan konvensi; jangan masukkan API key, token, atau isi rahasia.
 
 Patch apply dan test runner memakai dua flag staging terpisah: `KENOAI_AGENT_WRITE=true` dan `KENOAI_AGENT_RUNNER=true`. Keduanya sengaja tidak aktif pada production. Workspace root juga dapat dibatasi dengan `KENOAI_AGENT_WORKSPACE_ROOT`.
+
+Patch preview/review/plan menolak pola secret umum. Patch apply memakai write lock dan mengembalikan rollback checkpoint yang kedaluwarsa setelah 30 menit.
 
 ## Validasi perubahan
 

@@ -84,6 +84,8 @@ const AGENT_WRITE_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KE
 const AGENT_RUNNER_ENABLED = process.env.NODE_ENV === 'staging' && process.env.KENOAI_AGENT_RUNNER === 'true';
 const AGENT_WORKSPACE_ROOT = path.resolve(process.env.KENOAI_AGENT_WORKSPACE_ROOT || __dirname);
 const patchApprovals = new Map();
+const patchRollbacks = new Map();
+let agentWriteLock = false;
 const agentAudit = [];
 const metrics = {
   startedAt: Date.now(),
@@ -250,6 +252,19 @@ function redactRunnerOutput(value) {
   return String(value || '').slice(-20_000).replace(/(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|SUPABASE_SERVICE_ROLE_KEY\s*[=:]\s*\S+)/gi, '[REDACTED]');
 }
 
+function scanSecrets(value) {
+  const findings = [];
+  const text = String(value || '');
+  const patterns = [
+    [/sk-[A-Za-z0-9_-]{12,}/i, 'OpenRouter key'],
+    [/gh[pousr]_[A-Za-z0-9_]{12,}/i, 'GitHub token'],
+    [/-----BEGIN (?:RSA|OPENSSH|EC) PRIVATE KEY-----/i, 'Private key'],
+    [/(?:SUPABASE_SERVICE_ROLE_KEY|OPENROUTER_API_KEY)\s*[=:]\s*\S+/i, 'Server secret assignment'],
+  ];
+  for (const [pattern, type] of patterns) if (pattern.test(text)) findings.push(type);
+  return [...new Set(findings)];
+}
+
 function recordAgentAudit(req, action, detail = {}) {
   agentAudit.unshift({ id: crypto.randomBytes(10).toString('hex'), action, requestId: req.requestId, ts: Date.now(), ...detail });
   if (agentAudit.length > 200) agentAudit.pop();
@@ -280,10 +295,31 @@ app.get('/api/agent/audit', requireUser, (req, res) => {
   res.json({ ok: true, entries: agentAudit.slice(0, 50).map(({ id, action, requestId, ts }) => ({ id, action, requestId, ts })) });
 });
 
+app.post('/api/agent/rollback', rateLimit, requireUser, (req, res) => {
+  if (!AGENT_WRITE_ENABLED) return res.status(403).json({ error: 'Rollback is disabled outside staging.' });
+  const rollbackId = String(req.body?.rollbackId || '');
+  const patch = patchRollbacks.get(rollbackId);
+  if (!patch) return res.status(404).json({ error: 'Rollback checkpoint not found or expired.' });
+  if (agentWriteLock) return res.status(409).json({ error: 'Another agent write is in progress.' });
+  agentWriteLock = true;
+  try {
+    execFileSync('git', ['apply', '--reverse', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10_000 });
+    patchRollbacks.delete(rollbackId);
+    recordAgentAudit(req, 'patch_rollback');
+    res.json({ ok: true, requestId: req.requestId });
+  } catch (error) {
+    res.status(409).json({ error: `Rollback was not applied: ${String(error.stderr || error.message).slice(0, 500)}` });
+  } finally {
+    agentWriteLock = false;
+  }
+});
+
 app.post('/api/agent/plan', rateLimit, requireUser, async (req, res) => {
   const goal = String(req.body?.goal || '').trim();
   if (!goal || goal.length > 20_000) return res.status(400).json({ error: 'A goal between 1 and 20000 characters is required.' });
   try {
+    const secretFindings = scanSecrets(goal);
+    if (secretFindings.length) return res.status(400).json({ error: 'Goal contains a possible secret.', findings: secretFindings });
     const plan = await requestAgentJson([
       { role: 'system', content: 'You are a senior full-stack planner. Return JSON only with keys: summary, assumptions[], steps[{id,title,description,files[],risk}], tests[], rollback[], openQuestions[]. Do not claim files were changed.' },
       { role: 'user', content: goal },
@@ -301,6 +337,8 @@ app.post('/api/agent/review', rateLimit, requireUser, async (req, res) => {
   const patch = typeof req.body?.patch === 'string' ? req.body.patch : '';
   if (!patch || patch.length > 500_000) return res.status(400).json({ error: 'A patch between 1 and 500000 characters is required.' });
   try {
+    const secretFindings = scanSecrets(patch);
+    if (secretFindings.length) return res.status(400).json({ error: 'Patch contains a possible secret.', findings: secretFindings });
     const paths = safePatchPaths(patch);
     const review = await requestAgentJson([
       { role: 'system', content: 'You are a strict senior code reviewer. Return JSON only with keys: verdict, summary, findings[{severity,file,line,issue,fix}], tests[], risks[]. Severity must be one of blocker, high, medium, low, none. Review only the supplied diff and do not claim tests were run.' },
@@ -319,6 +357,8 @@ app.post('/api/agent/patch/preview', rateLimit, requireUser, (req, res) => {
   const patch = typeof req.body?.patch === 'string' ? req.body.patch : '';
   if (!patch || patch.length > 500_000) return res.status(400).json({ error: 'A patch between 1 and 500000 characters is required.' });
   try {
+    const secretFindings = scanSecrets(patch);
+    if (secretFindings.length) return res.status(400).json({ error: 'Patch contains a possible secret.', findings: secretFindings });
     const paths = safePatchPaths(patch);
     execFileSync('git', ['apply', '--check', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
     const approvalId = crypto.randomBytes(18).toString('hex');
@@ -339,12 +379,19 @@ app.post('/api/agent/patch/approve', rateLimit, requireUser, (req, res) => {
     return res.status(400).json({ error: 'Approval is missing or expired.' });
   }
   try {
+    if (agentWriteLock) return res.status(409).json({ error: 'Another agent write is in progress.' });
+    agentWriteLock = true;
     execFileSync('git', ['apply', '--whitespace=error', '-'], { cwd: AGENT_WORKSPACE_ROOT, input: approval.patch, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10_000 });
     patchApprovals.delete(approvalId);
+    const rollbackId = crypto.randomBytes(18).toString('hex');
+    patchRollbacks.set(rollbackId, approval.patch);
+    setTimeout(() => patchRollbacks.delete(rollbackId), 30 * 60_000);
     recordAgentAudit(req, 'patch_apply', { files: approval.paths });
-    res.json({ ok: true, summary: patchSummary(approval.patch, approval.paths), requestId: req.requestId });
+    res.json({ ok: true, summary: patchSummary(approval.patch, approval.paths), rollbackId, requestId: req.requestId });
   } catch (error) {
     res.status(409).json({ error: `Patch was not applied: ${String(error.stderr || error.message).slice(0, 500)}` });
+  } finally {
+    agentWriteLock = false;
   }
 });
 
