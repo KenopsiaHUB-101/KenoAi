@@ -8,6 +8,7 @@ KenoAi adalah AI workspace untuk percakapan streaming, project, task, Inbox, fil
 - Chat SSE streaming dengan persona Professional, Developer, dan Casual.
 - Agent mode untuk perencanaan coding full-stack yang aman, terstruktur, dan sadar konteks workspace/GitHub.
 - Read-only Agent Tool API dengan allowlist GitHub dan tanpa shell execution.
+- Model picker dari katalog server dengan fallback gratis saat model sibuk.
 - Fallback otomatis ke model gratis saat provider mengembalikan 429 atau 503.
 - Riwayat percakapan, pin, rename, export Markdown, retry, dan voice input.
 - Workspace Home dengan statistik berbasis data, quick actions, dan Recent Activity.

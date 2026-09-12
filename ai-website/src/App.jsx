@@ -151,6 +151,8 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(() => store.get('kenoai_sidebar_collapsed') === true);
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   const [persona, setPersona] = useState(() => store.get('kenoai_persona', 'professional'));
+    const [model, setModel] = useState(() => store.get('kenoai_model', ''));
+    const [modelCatalog, setModelCatalog] = useState([]);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [dialog, setDialog] = useState(null); // {type, id?, title?}
@@ -246,6 +248,7 @@ export default function App() {
   }, [sessions]);
 
   useEffect(() => { store.set('kenoai_persona', persona); }, [persona]);
+    useEffect(() => { store.set('kenoai_model', model); }, [model]);
   useEffect(() => { store.set('kenoai_sidebar_collapsed', collapsed); }, [collapsed]);
   useEffect(() => { document.documentElement.dataset.theme = theme; store.set('kenoai_theme', theme); }, [theme]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2600); return () => clearTimeout(t); } }, [toast]);
@@ -269,6 +272,20 @@ export default function App() {
       .catch(() => on && setGhInfo({ connected: false, reason: 'offline' }));
     return () => { on = false; };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let active = true;
+    fetch('/api/models')
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!active || !Array.isArray(data?.models)) return;
+        setModelCatalog(data.models);
+        if (!model && data.default) setModel(data.default);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isAuthenticated, model]);
 
   // Persist the connected repo choice
   useEffect(() => { if (gh) store.set(GH_KEY, gh); else store.remove(GH_KEY); }, [gh]);
@@ -863,6 +880,7 @@ export default function App() {
         body: JSON.stringify({
           messages: apiMessages,
           persona: personaRef.current,
+          ...(modelRef.current ? { model: modelRef.current } : {}),
           ...(ghRef.current ? { github: { owner: ghRef.current.owner, repo: ghRef.current.repo, branch: ghRef.current.branch } } : {}),
         }),
         signal: controller.signal,
@@ -937,6 +955,9 @@ export default function App() {
 
   const personaRef = useRef(persona);
   personaRef.current = persona;
+  const modelRef = useRef(model);
+  modelRef.current = model;
+    }, [image, loading, persona, model]); // eslint-disable-line
   // Keep the GitHub repo selection available inside handleSend without re-creating it
   const ghRef = useRef(gh);
   ghRef.current = gh;
@@ -1091,6 +1112,12 @@ export default function App() {
               <span className="dot" style={{ background: cloudSync === 'synced' ? '#34d399' : cloudSync === 'offline' ? 'var(--danger)' : 'var(--accent-warning)' }} />
               {cloudSync === 'synced' ? 'Cloud synced' : cloudSync === 'offline' ? 'Local mode' : 'Cloud sync'}
             </div>
+            {view === 'chat' && (
+              <select className="model-picker" value={model} onChange={(e) => setModel(e.target.value)} aria-label="AI model" title="Choose AI model">
+                {modelCatalog.length === 0 && <option value="">Default model</option>}
+                {modelCatalog.map((item) => <option key={item.id} value={item.id}>{item.label}{item.free ? ' · free' : ''}</option>)}
+              </select>
+            )}
             {view === 'chat' && (
               <div className="persona" role="tablist" aria-label="Persona">
                 {PERSONAS.map((p) => (

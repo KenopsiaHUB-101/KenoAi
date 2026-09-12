@@ -84,6 +84,8 @@
 .msg-error-copy p { margin-bottom: 9px; }
 .msg-retry { border: 1px solid var(--accent-primary); border-radius: 8px; padding: 6px 10px; color: var(--accent-primary); background: transparent; cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 700; }
 .msg-retry:hover { color: #fff; background: var(--accent-primary); }
+.model-picker { max-width: 190px; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px 8px; color: var(--text-secondary); background: var(--bg-secondary); font: inherit; font-size: 0.72rem; outline: none; }
+.model-picker:focus { border-color: var(--accent-primary); }
 .gh-browser { margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px; }
 .gh-browser-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: var(--text-secondary); font-size: 0.75rem; }
 .gh-browser-head small { color: var(--text-tertiary); font-size: 0.68rem; }
